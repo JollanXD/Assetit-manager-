@@ -369,9 +369,10 @@ class AssetItWindow(QMainWindow):
         filter_layout.setContentsMargins(0, 0, 0, 0)
         filter_layout.setSpacing(3)
         self.filter_buttons = []
-        for index, (key, tip, glyph) in enumerate([("All", "All assets", "▦"), ("Models", "3D models: FBX, OBJ, USD, GLTF…", "⬡"), ("Textures", "Images and textures", "▧"), ("HDRI", "HDRI / environment maps: EXR, HDR", "◉"), ("Projects", "3D application project files", "▣")]):
+        for index, (key, tip, icon_name) in enumerate([("All", "All assets", "grid"), ("Models", "3D models: FBX, OBJ, USD, GLTF…", "cube"), ("Textures", "Images and textures", "image"), ("HDRI", "HDRI / environment maps: EXR, HDR", "sun"), ("Projects", "3D application project files", "folder")]):
             button = QToolButton()
-            button.setText(glyph)
+            button.setIcon(self._svg_icon(icon_name, "#19c5f5", 17))
+            button.setText("")
             button.setToolTip(tip)
             button.setCheckable(True)
             button.setAutoExclusive(True)
@@ -472,11 +473,13 @@ class AssetItWindow(QMainWindow):
         self.sidebar_widget = sidebar
         self.info_widget = info
         self.toggle_left = QToolButton()
-        self.toggle_left.setText("◧")
+        self.toggle_left.setIcon(self._svg_icon("grid", "#aab8c5", 17))
+        self.toggle_left.setText("")
         self.toggle_left.setToolTip("Show/hide libraries panel")
         self.toggle_left.clicked.connect(lambda: self._toggle_panel(self.sidebar_widget))
         self.toggle_right = QToolButton()
-        self.toggle_right.setText("◨")
+        self.toggle_right.setIcon(self._svg_icon("image", "#aab8c5", 17))
+        self.toggle_right.setText("")
         self.toggle_right.setToolTip("Show/hide asset information panel")
         self.toggle_right.clicked.connect(lambda: self._toggle_panel(self.info_widget))
         toolbar.insertWidget(1, self.toggle_left)
@@ -657,8 +660,8 @@ class AssetItWindow(QMainWindow):
         menu = QMenu(self)
         rename_action = menu.addAction("Rename display name…")
         icon_menu = menu.addMenu("Set library icon")
-        icon_choices = [("▣", "Default"), ("◈", "Materials"), ("▧", "Textures"), ("⬡", "Models"), ("◉", "HDRI"), ("★", "Favorites"), ("◆", "Projects")]
-        icon_actions = {icon_menu.addAction(f"{glyph}  {label}"): glyph for glyph, label in icon_choices}
+        icon_choices = [("folder", "Default"), ("cube", "Materials"), ("image", "Textures"), ("cube", "Models"), ("sun", "HDRI"), ("star", "Favorites"), ("folder", "Projects")]
+        icon_actions = {icon_menu.addAction(self._svg_icon(glyph, "#19c5f5", 16), label): glyph for glyph, label in icon_choices}
         remove_action = menu.addAction("Remove library")
         chosen = menu.exec(self.library_list.mapToGlobal(pos))
         if chosen in icon_actions:
@@ -682,8 +685,8 @@ class AssetItWindow(QMainWindow):
         self.library_list.clear()
         for path in self.settings.get("libraries", []):
             display_name = self.settings.get("library_names", {}).get(path, Path(path).name)
-            icon = self.settings.get("library_icons", {}).get(path, "▣")
-            item = QListWidgetItem(icon + "  " + display_name)
+            icon = self.settings.get("library_icons", {}).get(path, "folder")
+            item = QListWidgetItem(self._svg_icon(icon, "#19c5f5", 17), display_name)
             item.setToolTip(path)
             item.setData(Qt.ItemDataRole.UserRole, path)
             self.library_list.addItem(item)
