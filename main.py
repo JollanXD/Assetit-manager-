@@ -414,7 +414,7 @@ class AssetItWindow(QMainWindow):
     def _apply_ui_scale(self, scale):
         self.settings["ui_scale"] = float(scale)
         import re
-        scaled_style = re.sub(r"font-size:\\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
+        scaled_style = re.sub(r"font-size:\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
         app = QApplication.instance()
         if app:
             app.setStyleSheet(scaled_style)
