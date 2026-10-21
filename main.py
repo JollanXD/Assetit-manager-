@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import hashlib
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -33,7 +34,7 @@ def load_settings():
     try:
         return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"libraries": [], "thumbnail_size": 150, "show_hidden": False, "favorites": [], "ui_scale": 1.0}
+        return {"libraries": [], "thumbnail_size": 150, "show_hidden": False, "favorites": [], "ui_scale": 1.0, "show_disk_usage": False, "asset_tags": {}}
 
 
 def save_settings(settings):
@@ -154,6 +155,8 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         self.hidden = QCheckBox("Show hidden files")
         self.hidden.setChecked(settings.get("show_hidden", False))
+        self.disk_usage = QCheckBox("Show disk usage in sidebar")
+        self.disk_usage.setChecked(settings.get("show_disk_usage", False))
         self.scale = QSpinBox()
         self.scale.setRange(50, 300)
         self.scale.setSingleStep(10)
@@ -162,6 +165,7 @@ class SettingsDialog(QDialog):
         self.scale.valueChanged.connect(self._apply_scale_live)
         form.addRow("Interface scale", self.scale)
         form.addRow("", self.hidden)
+        form.addRow("", self.disk_usage)
         root.addLayout(form)
         plugin_note = QLabel(f"Plugin directory:\n{PLUGIN_DIR}\n\nPlugins are discovered from subfolders containing plugin.json.")
         plugin_note.setWordWrap(True)
@@ -191,6 +195,7 @@ class SettingsDialog(QDialog):
     def accept(self):
         self.settings["ui_scale"] = self.scale.value() / 100.0
         self.settings["show_hidden"] = self.hidden.isChecked()
+        self.settings["show_disk_usage"] = self.disk_usage.isChecked()
         super().accept()
 
 
@@ -293,11 +298,35 @@ class AssetItWindow(QMainWindow):
         self.library_list.currentRowChanged.connect(self._library_changed)
         self.library_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.library_list.customContextMenuRequested.connect(self._library_context_menu)
-        side.addWidget(self.library_list, 1)
+        side.addWidget(self.library_list)
+        side.addWidget(self._section_label("CATEGORIES"))
+        self.category_list = QListWidget()
+        self.category_list.setObjectName("categoryList")
+        for label, glyph in [("All Assets", "◇"), ("3D Models", "⬡"), ("Textures & Normals", "▧"), ("HDRI Maps", "☼"), ("Scenes & Presets", "▣")]:
+            item = QListWidgetItem(f"{glyph}  {label}")
+            item.setData(Qt.ItemDataRole.UserRole, label)
+            self.category_list.addItem(item)
+        self.category_list.setCurrentRow(0)
+        self.category_list.currentRowChanged.connect(self._category_changed)
+        side.addWidget(self.category_list)
+        self.favorites_button = QToolButton()
+        self.favorites_button.setText("★   Favorites")
+        self.favorites_button.setCheckable(True)
+        self.favorites_button.toggled.connect(self._render_cards)
+        side.addWidget(self.favorites_button)
         self.favorites = QCheckBox("Show favorites only")
-        self.favorites.setChecked(False)
-        self.favorites.toggled.connect(self._render_cards)
+        self.favorites.hide()
         side.addWidget(self.favorites)
+        side.addWidget(self._section_label("TAGS"))
+        self.tags_list = QListWidget()
+        self.tags_list.setObjectName("tagsList")
+        self.tags_list.setMaximumHeight(150)
+        self.tags_list.itemClicked.connect(self._tag_clicked)
+        side.addWidget(self.tags_list)
+        self.disk_usage_label = QLabel("")
+        self.disk_usage_label.setObjectName("muted")
+        side.addWidget(self.disk_usage_label)
+        self._refresh_sidebar_metadata()
         splitter.addWidget(sidebar)
 
         browser = QWidget()
@@ -380,10 +409,27 @@ class AssetItWindow(QMainWindow):
         self.info_type = QLabel("TYPE   —")
         self.info_path = QLabel("PATH   —")
         self.info_size = QLabel("SIZE   —")
-        for label in (self.info_type, self.info_path, self.info_size):
+        self.info_resolution = QLabel("RESOLUTION   —")
+        self.info_modified = QLabel("MODIFIED   —")
+        self.info_format = QLabel("FORMAT   —")
+        for label in (self.info_type, self.info_path, self.info_size, self.info_resolution, self.info_format, self.info_modified):
             label.setObjectName("infoText")
             label.setWordWrap(True)
             info_layout.addWidget(label)
+        self.info_tags = QLabel("Tags: —")
+        self.info_tags.setObjectName("infoText")
+        self.info_tags.setWordWrap(True)
+        info_layout.addWidget(self.info_tags)
+        self.tag_input = QLineEdit()
+        self.tag_input.setPlaceholderText("Add tag…")
+        info_layout.addWidget(self.tag_input)
+        add_tag = QPushButton("Add tag")
+        add_tag.clicked.connect(self._add_tag)
+        info_layout.addWidget(add_tag)
+        self.favorite_asset_button = QPushButton("☆  Add to Favorites")
+        self.favorite_asset_button.setCheckable(True)
+        self.favorite_asset_button.toggled.connect(self._toggle_selected_favorite)
+        info_layout.addWidget(self.favorite_asset_button)
         info_layout.addStretch()
         self.open_file_button = QPushButton("Open File")
         self.open_file_button.setEnabled(False)
@@ -411,6 +457,8 @@ class AssetItWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage("Ready")
+        self._refresh_sidebar_metadata()
+        self._update_disk_usage()
 
     def _apply_ui_scale(self, scale):
         self.settings["ui_scale"] = float(scale)
@@ -423,6 +471,70 @@ class AssetItWindow(QMainWindow):
 
     def _toggle_panel(self, panel):
         panel.setVisible(not panel.isVisible())
+
+    def _category_changed(self, row):
+        self._render_cards()
+
+    def _tag_clicked(self, item):
+        tag = item.data(Qt.ItemDataRole.UserRole)
+        if tag:
+            self.search.setText(tag)
+
+    def _refresh_sidebar_metadata(self):
+        if not hasattr(self, "tags_list"):
+            return
+        self.tags_list.clear()
+        tag_counts = {}
+        for path_tags in self.settings.get("asset_tags", {}).values():
+            for tag in path_tags:
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
+            item = QListWidgetItem(f"#{tag}   {count}")
+            item.setData(Qt.ItemDataRole.UserRole, tag)
+            self.tags_list.addItem(item)
+        self._update_disk_usage()
+
+    def _update_disk_usage(self):
+        if not hasattr(self, "disk_usage_label"):
+            return
+        enabled = bool(self.settings.get("show_disk_usage", False))
+        self.disk_usage_label.setVisible(enabled)
+        if not enabled or not self.current_library:
+            return
+        try:
+            usage = shutil.disk_usage(self.current_library)
+            self.disk_usage_label.setText(f"Disk free: {usage.free / 1024**3:.1f} GB / {usage.total / 1024**3:.0f} GB")
+        except OSError:
+            self.disk_usage_label.setText("Disk usage unavailable")
+
+    def _add_tag(self):
+        if not self.current_asset or not self.tag_input.text().strip():
+            return
+        tag = self.tag_input.text().strip().lstrip("#")
+        tags = self.settings.setdefault("asset_tags", {})
+        key = str(self.current_asset)
+        existing = tags.setdefault(key, [])
+        if tag.casefold() not in [value.casefold() for value in existing]:
+            existing.append(tag)
+        save_settings(self.settings)
+        self.tag_input.clear()
+        self.select_asset(key)
+        self._refresh_sidebar_metadata()
+
+    def _toggle_selected_favorite(self, checked):
+        if not self.current_asset:
+            return
+        favorites = set(self.settings.get("favorites", []))
+        key = str(self.current_asset)
+        if checked:
+            favorites.add(key)
+        else:
+            favorites.discard(key)
+        self.settings["favorites"] = sorted(favorites)
+        save_settings(self.settings)
+        self.favorite_asset_button.setText("★  In Favorites" if checked else "☆  Add to Favorites")
+        self._render_cards()
+        self._refresh_sidebar_metadata()
 
     def _thumbnail_size_changed(self, value):
         self.settings["thumbnail_size"] = int(value)
@@ -546,13 +658,23 @@ class AssetItWindow(QMainWindow):
                 widget.deleteLater()
         query = self.search.text().casefold().strip()
         mode = next((i for i, button in enumerate(self.filter_buttons) if button.isChecked()), 0)
+        category_row = self.category_list.currentRow() if hasattr(self, "category_list") else 0
+        category = {1: "models", 2: "textures", 3: "hdri", 4: "projects"}.get(category_row, "all")
         visible = []
         favorites = set(self.settings.get("favorites", []))
         for path in self.cards:
             ext = path.suffix.lower()
-            if self.favorites.isChecked() and str(path) not in favorites:
+            if (self.favorites.isChecked() or self.favorites_button.isChecked()) and str(path) not in favorites:
                 continue
             if query and query not in path.name.casefold() and query not in str(path.parent).casefold():
+                continue
+            if category == "models" and ext not in MODEL_EXTS:
+                continue
+            if category == "textures" and (ext not in IMAGE_EXTS or ext in HDRI_EXTS):
+                continue
+            if category == "hdri" and ext not in HDRI_EXTS:
+                continue
+            if category == "projects" and ext not in PROJECT_EXTS:
                 continue
             if mode == 1 and ext not in MODEL_EXTS:
                 continue
@@ -571,7 +693,7 @@ class AssetItWindow(QMainWindow):
             card.activated.connect(self._open_path)
             card.context_requested.connect(self._asset_context_menu)
             self.grid.addWidget(card, index // cols, index % cols)
-        self.count_label.setText(f"{len(visible)} assets")
+        self.count_label.setText(f"{len(visible)} Assets Found")
         if not visible:
             self._show_empty("No matching assets found" if self.cards else "This library contains no supported assets")
 
@@ -618,13 +740,26 @@ class AssetItWindow(QMainWindow):
         self.info_path.setText("PATH   " + str(path))
         try:
             size = path.stat().st_size
-            self.info_size.setText(f"SIZE   {size / 1024:.1f} KB" if size < 1024**2 else f"SIZE   {size / 1024**2:.2f} MB")
+            self.info_size.setText(f"FILE SIZE   {size / 1024:.1f} KB" if size < 1024**2 else f"FILE SIZE   {size / 1024**2:.2f} MB")
         except OSError:
             self.info_size.setText("SIZE   unavailable")
+        try:
+            self.info_modified.setText("DATE MODIFIED   " + datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"))
+        except OSError:
+            self.info_modified.setText("DATE MODIFIED   —")
+        self.info_format.setText("FORMAT   " + (path.suffix.upper().lstrip(".") or "Unknown") + " File")
+        self.info_resolution.setText("RESOLUTION   —")
+        self.info_tags.setText("Tags: " + (", ".join("#" + tag for tag in self.settings.get("asset_tags", {}).get(str(path), [])) or "—"))
+        is_favorite = str(path) in set(self.settings.get("favorites", []))
+        self.favorite_asset_button.blockSignals(True)
+        self.favorite_asset_button.setChecked(is_favorite)
+        self.favorite_asset_button.setText("★  In Favorites" if is_favorite else "☆  Add to Favorites")
+        self.favorite_asset_button.blockSignals(False)
         self.info_preview.clear()
         if path.suffix.lower() in IMAGE_EXTS:
             pix = QPixmap(str(path))
             if not pix.isNull():
+                self.info_resolution.setText(f"RESOLUTION   {pix.width()} × {pix.height()} px")
                 self.info_preview.setPixmap(pix.scaled(self.info_preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             else:
                 self.info_preview.setText("Preview unavailable")
@@ -701,6 +836,8 @@ QFrame#sidebar, QFrame#infoPanel { background: #242629; border: 1px solid #34373
 QListWidget { background: transparent; border: none; outline: none; }
 QListWidget::item { padding: 10px 7px; border-radius: 4px; }
 QListWidget::item:selected { background: #143b4c; color: #62d5ff; }
+QListWidget#categoryList::item { padding: 7px 5px; }
+QListWidget#tagsList::item { padding: 4px 5px; color: #59d0ff; }
 QLabel#brand { color: #e7f6ff; font-size: 18pt; font-weight: 600; }
 QLabel#logo { color: #1fc5f5; font-size: 22pt; font-weight: bold; }
 QLabel#muted, QLabel#sectionLabel { color: #89939d; }
@@ -712,6 +849,7 @@ QLabel#assetName { color: #cbd1d7; font-size: 9pt; }
 QLabel#infoPreview { background: #191b1d; border: 1px solid #34373b; border-radius: 4px; color: #8e9aa5; }
 QLabel#infoName { color: #59d0ff; font-weight: bold; padding-top: 7px; }
 QLabel#infoText { color: #a9b1b8; font-size: 9pt; padding: 3px 0; }
+QPushButton:checked { background: #123b4d; border-color: #087fb1; color: #65d5ff; }
 QLabel#emptyState { color: #78848d; font-size: 12pt; padding: 40px; }
 QCheckBox { spacing: 8px; }
 QCheckBox::indicator { width: 14px; height: 14px; }
