@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -18,7 +19,10 @@ from PySide6.QtWidgets import (
 APP_NAME = "AssetIt"
 APP_VERSION = "0.1.0"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
-ASSET_EXTS = IMAGE_EXTS | {".fbx", ".obj", ".abc", ".usd", ".usda", ".usdc", ".ma", ".mb", ".blend", ".c4d", ".glb", ".gltf", ".stl", ".ply", ".vdb"}
+HDRI_EXTS = {".exr", ".hdr", ".tx"}
+MODEL_EXTS = {".fbx", ".obj", ".abc", ".usd", ".usda", ".usdc", ".glb", ".gltf", ".stl", ".ply", ".vdb"}
+PROJECT_EXTS = {".ma", ".mb", ".blend", ".c4d", ".hip", ".hiplc", ".max", ".3ds", ".ztl"}
+ASSET_EXTS = IMAGE_EXTS | MODEL_EXTS | PROJECT_EXTS
 APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share"))) / "AssetIt"
 SETTINGS_FILE = APPDATA / "settings.json"
 PLUGIN_DIR = Path(sys.executable).resolve().parent / "Plugins" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent / "Plugins"
@@ -34,6 +38,28 @@ def load_settings():
 def save_settings(settings):
     APPDATA.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def cache_file_for(root: Path) -> Path:
+    key = hashlib.sha1(str(root).encode("utf-8", errors="ignore")).hexdigest()[:16]
+    return APPDATA / "cache" / f"library_{key}.json"
+
+
+def read_library_cache(root: Path):
+    try:
+        data = json.loads(cache_file_for(root).read_text(encoding="utf-8"))
+        return [Path(item) for item in data if Path(item).is_file()]
+    except (OSError, json.JSONDecodeError, TypeError):
+        return []
+
+
+def write_library_cache(root: Path, paths):
+    try:
+        target = cache_file_for(root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps([str(path) for path in paths], ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
 
 
 class LibraryScanThread(QThread):
@@ -268,11 +294,23 @@ class AssetItWindow(QMainWindow):
         self.breadcrumb = QLabel("Choose a library")
         self.breadcrumb.setObjectName("muted")
         toolbar.addWidget(self.breadcrumb)
-        self.type_filter = QComboBox()
-        self.type_filter.addItems(["All Assets", "Images & Textures", "3D Models", "Other Files"])
-        self.type_filter.setToolTip("Filter assets by file type")
-        self.type_filter.currentIndexChanged.connect(self._render_cards)
-        toolbar.addWidget(self.type_filter)
+        self.filter_group = QWidget()
+        filter_layout = QHBoxLayout(self.filter_group)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
+        filter_layout.setSpacing(3)
+        self.filter_buttons = []
+        for index, (key, tip, glyph) in enumerate([("All", "All assets", "▦"), ("Models", "3D models: FBX, OBJ, USD, GLTF…", "⬡"), ("Textures", "Images and textures", "▧"), ("HDRI", "HDRI / environment maps: EXR, HDR", "◉"), ("Projects", "3D application project files", "▣")]):
+            button = QToolButton()
+            button.setText(glyph)
+            button.setToolTip(tip)
+            button.setCheckable(True)
+            button.setAutoExclusive(True)
+            button.setObjectName("filterButton")
+            button.clicked.connect(lambda checked=False, i=index: self._set_filter(i))
+            filter_layout.addWidget(button)
+            self.filter_buttons.append(button)
+        self.filter_buttons[0].setChecked(True)
+        toolbar.addWidget(self.filter_group)
         self.thumb_size = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size.setRange(90, 240)
         self.thumb_size.setSingleStep(10)
@@ -365,8 +403,12 @@ class AssetItWindow(QMainWindow):
 
     def _thumbnail_size_changed(self, value):
         self.settings["thumbnail_size"] = int(value)
-        save_settings(self.settings)
         self._render_cards()
+
+    def _set_filter(self, index):
+        if 0 <= index < len(self.filter_buttons):
+            self.filter_buttons[index].setChecked(True)
+            self._render_cards()
 
     @staticmethod
     def _section_label(text):
@@ -423,6 +465,11 @@ class AssetItWindow(QMainWindow):
         library = self.current_library
         show_hidden = self.settings.get("show_hidden", False)
         self.status.showMessage("Scanning library in background…")
+        cached = read_library_cache(library)
+        if cached:
+            self.cards = cached
+            self._render_cards()
+            self.status.showMessage(f"Loaded {len(cached)} cached assets; checking for changes…")
         self._scan_thread = LibraryScanThread(library, show_hidden, self)
         self._scan_thread.finished_scan.connect(self._scan_finished)
         self._scan_thread.start()
@@ -430,6 +477,8 @@ class AssetItWindow(QMainWindow):
     def _scan_finished(self, paths, warning):
         self.cards = paths
         self.cards.sort(key=lambda p: (p.suffix.lower() not in IMAGE_EXTS, p.name.casefold()))
+        if self.current_library:
+            write_library_cache(self.current_library, self.cards)
         self._render_cards()
         if warning:
             self.status.showMessage(f"Scan completed with warning: {warning}")
@@ -443,7 +492,7 @@ class AssetItWindow(QMainWindow):
             if widget:
                 widget.deleteLater()
         query = self.search.text().casefold().strip()
-        mode = self.type_filter.currentIndex()
+        mode = next((i for i, button in enumerate(self.filter_buttons) if button.isChecked()), 0)
         visible = []
         favorites = set(self.settings.get("favorites", []))
         for path in self.cards:
@@ -452,11 +501,13 @@ class AssetItWindow(QMainWindow):
                 continue
             if query and query not in path.name.casefold() and query not in str(path.parent).casefold():
                 continue
-            if mode == 1 and ext not in IMAGE_EXTS:
+            if mode == 1 and ext not in MODEL_EXTS:
                 continue
-            if mode == 2 and ext not in {".fbx", ".obj", ".abc", ".usd", ".usda", ".usdc", ".ma", ".mb", ".blend", ".c4d", ".glb", ".gltf", ".stl", ".ply", ".vdb"}:
+            if mode == 2 and (ext not in IMAGE_EXTS or ext in HDRI_EXTS):
                 continue
-            if mode == 3 and ext in IMAGE_EXTS | {".fbx", ".obj", ".abc", ".usd", ".usda", ".usdc", ".ma", ".mb", ".blend", ".c4d", ".glb", ".gltf", ".stl", ".ply", ".vdb"}:
+            if mode == 3 and ext not in HDRI_EXTS:
+                continue
+            if mode == 4 and ext not in PROJECT_EXTS:
                 continue
             visible.append(path)
         cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
@@ -589,6 +640,8 @@ QLineEdit:focus, QComboBox:focus { border: 1px solid #1db8ed; }
 QComboBox QAbstractItemView { background: #25272a; selection-background-color: #17445a; }
 QPushButton, QToolButton { background: #2b2e32; border: 1px solid #41454a; border-radius: 4px; padding: 7px 10px; }
 QPushButton:hover, QToolButton:hover { border-color: #16b9f0; color: #59d1ff; }
+QToolButton#filterButton { min-width: 28px; padding: 6px 9px; font-size: 13pt; }
+QToolButton#filterButton:checked { background: #123b4d; border: 1px solid #087fb1; color: #65d5ff; }
 QPushButton#primary { background: #123b4d; border: 1px solid #087fb1; color: #65d5ff; font-weight: 600; }
 QPushButton#primary:hover { background: #174c62; }
 QFrame#sidebar, QFrame#infoPanel { background: #242629; border: 1px solid #34373b; border-radius: 5px; }
