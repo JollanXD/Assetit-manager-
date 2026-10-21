@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
     QSplitter, QFrame, QScrollArea, QDialog, QFormLayout, QCheckBox, QComboBox,
-    QMessageBox, QToolButton, QMenu, QStatusBar, QSizePolicy
+    QMessageBox, QToolButton, QMenu, QStatusBar, QSizePolicy, QSlider, QSpinBox
 )
 
 APP_NAME = "AssetIt"
@@ -28,7 +28,7 @@ def load_settings():
     try:
         return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"libraries": [], "thumbnail_size": 150, "show_hidden": False}
+        return {"libraries": [], "thumbnail_size": 150, "show_hidden": False, "favorites": [], "ui_scale": 1.0}
 
 
 def save_settings(settings):
@@ -36,9 +36,36 @@ def save_settings(settings):
     SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+class LibraryScanThread(QThread):
+    finished_scan = Signal(list, str)
+
+    def __init__(self, root: Path, show_hidden: bool, parent=None):
+        super().__init__(parent)
+        self.root = root
+        self.show_hidden = show_hidden
+
+    def run(self):
+        found = []
+        warning = ""
+        try:
+            for path in self.root.rglob("*"):
+                try:
+                    if not path.is_file() or path.suffix.lower() not in ASSET_EXTS:
+                        continue
+                    if not self.show_hidden and any(part.startswith(".") for part in path.relative_to(self.root).parts):
+                        continue
+                    found.append(path)
+                except OSError:
+                    continue
+        except (OSError, PermissionError) as exc:
+            warning = str(exc)
+        self.finished_scan.emit(found, warning)
+
+
 class AssetCard(QFrame):
     activated = Signal(str)
     selected = Signal(str)
+    context_requested = Signal(str, object)
 
     def __init__(self, path: Path, thumb_size: int, parent=None):
         super().__init__(parent)
@@ -71,6 +98,8 @@ class AssetCard(QFrame):
         layout.addWidget(preview)
         layout.addWidget(name)
         self.setToolTip(str(path))
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(lambda pos: self.context_requested.emit(str(self.path), self.mapToGlobal(pos)))
 
     @staticmethod
     def _type_label(path):
@@ -96,14 +125,14 @@ class SettingsDialog(QDialog):
         self.settings = settings
         root = QVBoxLayout(self)
         form = QFormLayout()
-        self.thumb = QComboBox()
-        for label, value in [("Small", 100), ("Medium", 150), ("Large", 210)]:
-            self.thumb.addItem(label, value)
-        idx = self.thumb.findData(settings.get("thumbnail_size", 150))
-        self.thumb.setCurrentIndex(max(0, idx))
         self.hidden = QCheckBox("Show hidden files")
         self.hidden.setChecked(settings.get("show_hidden", False))
-        form.addRow("Thumbnail size", self.thumb)
+        self.scale = QSpinBox()
+        self.scale.setRange(50, 300)
+        self.scale.setSingleStep(10)
+        self.scale.setSuffix("%")
+        self.scale.setValue(round(float(settings.get("ui_scale", 1.0)) * 100))
+        form.addRow("Interface scale", self.scale)
         form.addRow("", self.hidden)
         root.addLayout(form)
         plugin_note = QLabel(f"Plugin directory:\n{PLUGIN_DIR}\n\nPlugins are discovered from subfolders containing plugin.json.")
@@ -122,7 +151,7 @@ class SettingsDialog(QDialog):
         root.addLayout(buttons)
 
     def accept(self):
-        self.settings["thumbnail_size"] = self.thumb.currentData()
+        self.settings["ui_scale"] = self.scale.value() / 100.0
         self.settings["show_hidden"] = self.hidden.isChecked()
         super().accept()
 
@@ -134,6 +163,8 @@ class AssetItWindow(QMainWindow):
         self.current_library = None
         self.current_asset = None
         self.cards = []
+        self._scan_thread = None
+        self._selected_paths = set()
         self.setWindowTitle(f"AssetIt {APP_VERSION}")
         self.resize(1380, 850)
         self.setMinimumSize(980, 620)
@@ -223,14 +254,9 @@ class AssetItWindow(QMainWindow):
         self.library_list.setObjectName("libraryList")
         self.library_list.currentRowChanged.connect(self._library_changed)
         side.addWidget(self.library_list, 1)
-        side.addWidget(self._section_label("FILTER BY TYPE"))
-        self.type_filter = QComboBox()
-        self.type_filter.addItems(["All Assets", "Images & Textures", "3D Models", "Other Files"])
-        self.type_filter.currentIndexChanged.connect(self._render_cards)
-        side.addWidget(self.type_filter)
         self.favorites = QCheckBox("Show favorites only")
-        self.favorites.setEnabled(False)
-        self.favorites.setToolTip("Favorites are planned for a later build.")
+        self.favorites.setChecked(False)
+        self.favorites.toggled.connect(self._render_cards)
         side.addWidget(self.favorites)
         splitter.addWidget(sidebar)
 
@@ -242,6 +268,19 @@ class AssetItWindow(QMainWindow):
         self.breadcrumb = QLabel("Choose a library")
         self.breadcrumb.setObjectName("muted")
         toolbar.addWidget(self.breadcrumb)
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["All Assets", "Images & Textures", "3D Models", "Other Files"])
+        self.type_filter.setToolTip("Filter assets by file type")
+        self.type_filter.currentIndexChanged.connect(self._render_cards)
+        toolbar.addWidget(self.type_filter)
+        self.thumb_size = QSlider(Qt.Orientation.Horizontal)
+        self.thumb_size.setRange(90, 240)
+        self.thumb_size.setSingleStep(10)
+        self.thumb_size.setFixedWidth(100)
+        self.thumb_size.setToolTip("Thumbnail size")
+        self.thumb_size.setValue(int(self.settings.get("thumbnail_size", 150)))
+        self.thumb_size.valueChanged.connect(self._thumbnail_size_changed)
+        toolbar.addWidget(self.thumb_size)
         toolbar.addStretch()
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search assets…")
@@ -304,10 +343,30 @@ class AssetItWindow(QMainWindow):
         info_layout.addWidget(self.open_folder_button)
         splitter.addWidget(info)
         splitter.setSizes([220, 850, 270])
+        self.sidebar_widget = sidebar
+        self.info_widget = info
+        self.toggle_left = QToolButton()
+        self.toggle_left.setText("◧")
+        self.toggle_left.setToolTip("Show/hide libraries panel")
+        self.toggle_left.clicked.connect(lambda: self._toggle_panel(self.sidebar_widget))
+        self.toggle_right = QToolButton()
+        self.toggle_right.setText("◨")
+        self.toggle_right.setToolTip("Show/hide asset information panel")
+        self.toggle_right.clicked.connect(lambda: self._toggle_panel(self.info_widget))
+        toolbar.insertWidget(1, self.toggle_left)
+        toolbar.insertWidget(2, self.toggle_right)
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage("Ready")
+
+    def _toggle_panel(self, panel):
+        panel.setVisible(not panel.isVisible())
+
+    def _thumbnail_size_changed(self, value):
+        self.settings["thumbnail_size"] = int(value)
+        save_settings(self.settings)
+        self._render_cards()
 
     @staticmethod
     def _section_label(text):
@@ -353,24 +412,29 @@ class AssetItWindow(QMainWindow):
         self._scan_current()
 
     def _scan_current(self):
-        self.cards.clear()
+        if self._scan_thread and self._scan_thread.isRunning():
+            self.status.showMessage("A library scan is already running…")
+            return
         if not self.current_library or not self.current_library.exists():
+            self.cards = []
             self._render_cards()
             self.status.showMessage("Library folder is unavailable")
             return
+        library = self.current_library
         show_hidden = self.settings.get("show_hidden", False)
-        try:
-            for path in self.current_library.rglob("*"):
-                if not path.is_file() or path.suffix.lower() not in ASSET_EXTS:
-                    continue
-                if not show_hidden and any(part.startswith(".") for part in path.relative_to(self.current_library).parts):
-                    continue
-                self.cards.append(path)
-        except (OSError, PermissionError) as exc:
-            self.status.showMessage(f"Scan warning: {exc}")
+        self.status.showMessage("Scanning library in background…")
+        self._scan_thread = LibraryScanThread(library, show_hidden, self)
+        self._scan_thread.finished_scan.connect(self._scan_finished)
+        self._scan_thread.start()
+
+    def _scan_finished(self, paths, warning):
+        self.cards = paths
         self.cards.sort(key=lambda p: (p.suffix.lower() not in IMAGE_EXTS, p.name.casefold()))
         self._render_cards()
-        self.status.showMessage(f"Scanned {len(self.cards)} supported files")
+        if warning:
+            self.status.showMessage(f"Scan completed with warning: {warning}")
+        else:
+            self.status.showMessage(f"Scanned {len(self.cards)} supported files")
 
     def _render_cards(self, *_):
         while self.grid.count():
@@ -381,8 +445,11 @@ class AssetItWindow(QMainWindow):
         query = self.search.text().casefold().strip()
         mode = self.type_filter.currentIndex()
         visible = []
+        favorites = set(self.settings.get("favorites", []))
         for path in self.cards:
             ext = path.suffix.lower()
+            if self.favorites.isChecked() and str(path) not in favorites:
+                continue
             if query and query not in path.name.casefold() and query not in str(path.parent).casefold():
                 continue
             if mode == 1 and ext not in IMAGE_EXTS:
@@ -398,10 +465,34 @@ class AssetItWindow(QMainWindow):
             card = AssetCard(path, thumb)
             card.selected.connect(self.select_asset)
             card.activated.connect(self._open_path)
+            card.context_requested.connect(self._asset_context_menu)
             self.grid.addWidget(card, index // cols, index % cols)
         self.count_label.setText(f"{len(visible)} assets")
         if not visible:
             self._show_empty("No matching assets found" if self.cards else "This library contains no supported assets")
+
+    def _asset_context_menu(self, path_string, global_pos):
+        path = Path(path_string)
+        favorites = set(self.settings.get("favorites", []))
+        menu = QMenu(self)
+        favorite_action = menu.addAction("Remove from favorites" if path_string in favorites else "Add to favorites")
+        menu.addSeparator()
+        open_action = menu.addAction("Open file")
+        folder_action = menu.addAction("Open containing folder")
+        chosen = menu.exec(global_pos)
+        if chosen == favorite_action:
+            if path_string in favorites:
+                favorites.remove(path_string)
+            else:
+                favorites.add(path_string)
+            self.settings["favorites"] = sorted(favorites)
+            save_settings(self.settings)
+            self._render_cards()
+        elif chosen == open_action:
+            self._open_path(path_string)
+        elif chosen == folder_action:
+            self.current_asset = path
+            self.open_containing_folder()
 
     def _show_empty(self, message):
         while self.grid.count():
@@ -472,6 +563,10 @@ class AssetItWindow(QMainWindow):
         dialog = SettingsDialog(self.settings, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             save_settings(self.settings)
+            scale = float(self.settings.get("ui_scale", 1.0))
+            font = QApplication.font()
+            font.setPointSizeF(10 * scale)
+            QApplication.setFont(font)
             self._render_cards()
 
     def open_plugins_folder(self):
