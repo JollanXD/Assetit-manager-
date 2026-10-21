@@ -148,7 +148,7 @@ class AssetCard(QFrame):
         try:
             if path.suffix.lower() in IMAGE_EXTS:
                 image = QPixmap(str(path))
-                detail = QLabel(f"{image.width()}²" if not image.isNull() else "")
+                detail = QLabel(f"{image.width()}" if not image.isNull() else "")
             else:
                 detail = QLabel("")
         except OSError:
@@ -172,7 +172,7 @@ class AssetCard(QFrame):
         paths = {
             "star": '<path d="m12 2 3 6.5 7 .8-5.2 4.8 1.5 6.9-6.3-3.5-6.3 3.5 1.5-6.9L2 9.3l7-.8z"/>'
         }
-        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24"><path d="{paths[name].split(chr(34))[0] if False else ""}" fill="none"/><g fill="{color}" stroke="{color}" stroke-width="1.2">{paths[name]}</g></svg>'
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24"><g fill="{color}" stroke="{color}" stroke-width="1.2">{paths[name]}</g></svg>'
         renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
