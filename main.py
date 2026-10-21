@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSize, QThread, Signal
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer
 from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter
 from PySide6.QtCore import QByteArray
 from PySide6.QtSvg import QSvgRenderer
@@ -272,6 +272,11 @@ class AssetItWindow(QMainWindow):
         self.cards = []
         self._scan_thread = None
         self._selected_paths = set()
+        self._render_generation = 0
+        self._render_queue = []
+        self._render_cols = 1
+        self._render_thumb = 150
+        self._render_favorites = set()
         self.setWindowTitle(f"AssetIt {APP_VERSION}")
         self.resize(1380, 850)
         self.setMinimumSize(980, 620)
@@ -876,24 +881,29 @@ class AssetItWindow(QMainWindow):
             self.status.showMessage(f"Scanned {len(self.cards)} supported files")
 
     def _render_cards(self, *_):
+        # Invalidate any queued card batches so filtering never leaves stale cards behind.
+        self._render_generation += 1
+        generation = self._render_generation
         while self.grid.count():
             item = self.grid.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
+
         query = self.search.text().casefold().strip()
         mode = next((i for i, button in enumerate(self.filter_buttons) if button.isChecked()), 0)
         category_row = self.category_list.currentRow() if hasattr(self, "category_list") else 0
         category = {1: "models", 2: "textures", 3: "hdri", 4: "projects"}.get(category_row, "all")
         visible = []
         favorites = set(self.settings.get("favorites", []))
+        normalized_query = query.lstrip("#")
+        tag_map = self.settings.get("asset_tags", {})
         for path in self.cards:
             ext = path.suffix.lower()
             if (self.favorites.isChecked() or self.favorites_button.isChecked()) and str(path) not in favorites:
                 continue
-            path_tags = self.settings.get("asset_tags", {}).get(str(path), [])
+            path_tags = tag_map.get(str(path), [])
             searchable_tags = " ".join(path_tags).casefold()
-            normalized_query = query.lstrip("#")
             if query and query not in path.name.casefold() and query not in str(path.parent).casefold() and normalized_query not in searchable_tags:
                 continue
             if category == "models" and ext not in MODEL_EXTS:
@@ -913,30 +923,53 @@ class AssetItWindow(QMainWindow):
             if mode == 4 and ext not in PROJECT_EXTS:
                 continue
             visible.append(path)
-        cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
-        thumb = self.settings.get("thumbnail_size", 150)
-        for index, path in enumerate(visible):
-            card = AssetCard(path, thumb, str(path) in favorites)
-            card.selected.connect(self.select_asset)
-            card.activated.connect(self._open_path)
-            card.favorite_toggled.connect(self._toggle_favorite_path)
-            card.context_requested.connect(self._asset_context_menu)
-            self.grid.addWidget(card, index // cols, index % cols)
+
         sort_mode = self.sort_select.currentIndex() if hasattr(self, "sort_select") else 0
         if sort_mode == 1:
             visible.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
         elif sort_mode == 2:
             visible.sort(key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
         elif sort_mode == 3:
-            visible.sort(key=lambda p: self._resolution_sort_key(p), reverse=True)
+            visible.sort(key=self._resolution_sort_key, reverse=True)
         else:
             visible.sort(key=lambda p: p.name.casefold())
+
         self.count_label.setText(f"{len(visible)} Assets Found")
         if hasattr(self, "active_filter_badge"):
-            selected_filter = self.search.text().strip() or (self.category_list.currentItem().text().split("   ")[0] if self.category_list.currentItem() else "All")
+            selected_filter = query or (self.category_list.currentItem().text() if self.category_list.currentItem() else "All")
             self.active_filter_badge.setText(selected_filter[:24])
         if not visible:
             self._show_empty("No matching assets found" if self.cards else "This library contains no supported assets")
+            return
+
+        self._render_queue = visible
+        self._render_index = 0
+        self._render_cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
+        self._render_thumb = self.settings.get("thumbnail_size", 150)
+        self._render_favorites = favorites
+        self.status.showMessage(f"Preparing {len(visible)} assets…")
+        QTimer.singleShot(0, lambda: self._render_next_batch(generation))
+
+    def _render_next_batch(self, generation):
+        if generation != self._render_generation:
+            return
+        # Small batches keep the window responsive even for libraries with thousands of files.
+        batch_size = 18
+        end = min(self._render_index + batch_size, len(self._render_queue))
+        for index in range(self._render_index, end):
+            path = self._render_queue[index]
+            card = AssetCard(path, self._render_thumb, str(path) in self._render_favorites)
+            card.selected.connect(self.select_asset)
+            card.activated.connect(self._open_path)
+            card.favorite_toggled.connect(self._toggle_favorite_path)
+            card.context_requested.connect(self._asset_context_menu)
+            self.grid.addWidget(card, index // self._render_cols, index % self._render_cols)
+        self._render_index = end
+        if end < len(self._render_queue):
+            self.status.showMessage(f"Loading thumbnails… {end} / {len(self._render_queue)}")
+            QTimer.singleShot(0, lambda: self._render_next_batch(generation))
+        else:
+            self.status.showMessage(f"Ready — {len(self._render_queue)} assets")
 
     def _toggle_favorite_path(self, path_string):
         favorites = set(self.settings.get("favorites", []))
