@@ -28,8 +28,11 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: Generate application icon
+        run: python assets/make_icon.py
+
       - name: Build portable folder
-        run: pyinstaller --noconfirm --clean --windowed --name AssetIt --collect-all PySide6 --collect-all shiboken6 main.py
+        run: pyinstaller --noconfirm --clean --windowed --onedir --name AssetIt --icon assets/assetit.ico --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module PySide6.QtPdf --exclude-module PySide6.QtPdfWidgets main.py
 
       - name: Prepare portable package
         shell: pwsh
