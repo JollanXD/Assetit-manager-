@@ -20,6 +20,7 @@ APP_NAME = "AssetIt"
 APP_VERSION = "0.1.0"
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
 HDRI_EXTS = {".exr", ".hdr", ".tx"}
+IMAGE_EXTS.add(".tx")
 MODEL_EXTS = {".fbx", ".obj", ".abc", ".usd", ".usda", ".usdc", ".glb", ".gltf", ".stl", ".ply", ".vdb"}
 PROJECT_EXTS = {".ma", ".mb", ".blend", ".c4d", ".hip", ".hiplc", ".max", ".3ds", ".ztl"}
 ASSET_EXTS = IMAGE_EXTS | MODEL_EXTS | PROJECT_EXTS
@@ -445,9 +446,16 @@ class AssetItWindow(QMainWindow):
         path = item.data(Qt.ItemDataRole.UserRole)
         menu = QMenu(self)
         rename_action = menu.addAction("Rename display name…")
+        icon_menu = menu.addMenu("Set library icon")
+        icon_choices = [("▣", "Default"), ("◈", "Materials"), ("▧", "Textures"), ("⬡", "Models"), ("◉", "HDRI"), ("★", "Favorites"), ("◆", "Projects")]
+        icon_actions = {icon_menu.addAction(f"{glyph}  {label}"): glyph for glyph, label in icon_choices}
         remove_action = menu.addAction("Remove library")
         chosen = menu.exec(self.library_list.mapToGlobal(pos))
-        if chosen == remove_action:
+        if chosen in icon_actions:
+            self.settings.setdefault("library_icons", {})[path] = icon_actions[chosen]
+            save_settings(self.settings)
+            self.refresh_libraries()
+        elif chosen == remove_action:
             self.settings["libraries"] = [p for p in self.settings.get("libraries", []) if p != path]
             save_settings(self.settings)
             self.refresh_libraries()
