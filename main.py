@@ -488,6 +488,20 @@ class AssetItWindow(QMainWindow):
         for path_tags in self.settings.get("asset_tags", {}).values():
             for tag in path_tags:
                 tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        if hasattr(self, "category_list"):
+            counts = [
+                len(self.cards),
+                sum(p.suffix.lower() in MODEL_EXTS for p in self.cards),
+                sum(p.suffix.lower() in IMAGE_EXTS and p.suffix.lower() not in HDRI_EXTS for p in self.cards),
+                sum(p.suffix.lower() in HDRI_EXTS for p in self.cards),
+                sum(p.suffix.lower() in PROJECT_EXTS for p in self.cards),
+            ]
+            category_labels = ["All Assets", "3D Models", "Textures & Normals", "HDRI Maps", "Scenes & Presets"]
+            category_glyphs = ["◇", "⬡", "▧", "☼", "▣"]
+            for index, (label, glyph, count) in enumerate(zip(category_labels, category_glyphs, counts)):
+                item = self.category_list.item(index)
+                if item:
+                    item.setText(f"{glyph}  {label}   {count}")
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
             item = QListWidgetItem(f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
@@ -616,6 +630,7 @@ class AssetItWindow(QMainWindow):
             return
         self.current_library = Path(self.library_list.item(row).data(Qt.ItemDataRole.UserRole))
         self.breadcrumb.setText(str(self.current_library))
+        self._update_disk_usage()
         self._scan_current()
 
     def _scan_current(self):
@@ -644,6 +659,7 @@ class AssetItWindow(QMainWindow):
         self.cards.sort(key=lambda p: (p.suffix.lower() not in IMAGE_EXTS, p.name.casefold()))
         if self.current_library:
             write_library_cache(self.current_library, self.cards)
+        self._refresh_sidebar_metadata()
         self._render_cards()
         if warning:
             self.status.showMessage(f"Scan completed with warning: {warning}")
@@ -666,7 +682,10 @@ class AssetItWindow(QMainWindow):
             ext = path.suffix.lower()
             if (self.favorites.isChecked() or self.favorites_button.isChecked()) and str(path) not in favorites:
                 continue
-            if query and query not in path.name.casefold() and query not in str(path.parent).casefold():
+            path_tags = self.settings.get("asset_tags", {}).get(str(path), [])
+            searchable_tags = " ".join(path_tags).casefold()
+            normalized_query = query.lstrip("#")
+            if query and query not in path.name.casefold() and query not in str(path.parent).casefold() and normalized_query not in searchable_tags:
                 continue
             if category == "models" and ext not in MODEL_EXTS:
                 continue
