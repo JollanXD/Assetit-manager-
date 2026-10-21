@@ -9,7 +9,9 @@ from pathlib import Path
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QSize, QThread, Signal
-from PySide6.QtGui import QAction, QPixmap, QIcon
+from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter
+from PySide6.QtCore import QByteArray
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
@@ -18,7 +20,8 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "AssetIt"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.1"
+DEFAULT_TAGS = ["PBR", "Grid", "Sci-Fi", "Seamless", "NormalMap", "4K", "HardSurface", "Arasaka", "Metal", "Blueprint", "HDRI", "8K", "Outdoor"]
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
 HDRI_EXTS = {".exr", ".hdr", ".tx"}
 IMAGE_EXTS.add(".tx")
@@ -157,6 +160,8 @@ class SettingsDialog(QDialog):
         self.hidden.setChecked(settings.get("show_hidden", False))
         self.disk_usage = QCheckBox("Show disk usage in sidebar")
         self.disk_usage.setChecked(settings.get("show_disk_usage", False))
+        self.hidden.toggled.connect(self._hidden_changed)
+        self.disk_usage.toggled.connect(self._disk_usage_changed)
         self.scale = QSpinBox()
         self.scale.setRange(50, 300)
         self.scale.setSingleStep(10)
@@ -182,6 +187,18 @@ class SettingsDialog(QDialog):
         buttons.addWidget(save)
         root.addLayout(buttons)
 
+    def _hidden_changed(self, checked):
+        self.settings["show_hidden"] = checked
+        save_settings(self.settings)
+        if self.parent():
+            self.parent()._settings_changed("show_hidden")
+
+    def _disk_usage_changed(self, checked):
+        self.settings["show_disk_usage"] = checked
+        save_settings(self.settings)
+        if self.parent():
+            self.parent()._settings_changed("show_disk_usage")
+
     def _apply_scale_live(self, value):
         scale = value / 100.0
         app = QApplication.instance()
@@ -196,6 +213,7 @@ class SettingsDialog(QDialog):
         self.settings["ui_scale"] = self.scale.value() / 100.0
         self.settings["show_hidden"] = self.hidden.isChecked()
         self.settings["show_disk_usage"] = self.disk_usage.isChecked()
+        save_settings(self.settings)
         super().accept()
 
 
@@ -260,9 +278,10 @@ class AssetItWindow(QMainWindow):
         root.setSpacing(8)
 
         header = QHBoxLayout()
-        logo = QLabel("▲")
+        logo = QLabel()
         logo.setObjectName("logo")
-        logo.setFixedWidth(28)
+        logo.setFixedSize(30, 30)
+        logo.setPixmap(self._svg_icon("cube", "#14bce9", 26).pixmap(26, 26))
         title = QLabel("AssetIt")
         title.setObjectName("brand")
         version = QLabel(APP_VERSION)
@@ -276,7 +295,8 @@ class AssetItWindow(QMainWindow):
         self.library_button.clicked.connect(self.add_library)
         header.addWidget(self.library_button)
         self.settings_button = QToolButton()
-        self.settings_button.setText("⚙")
+        self.settings_button.setIcon(self._svg_icon("settings", "#b8c7d5", 18))
+        self.settings_button.setText("")
         self.settings_button.setToolTip("Settings")
         self.settings_button.clicked.connect(self.open_settings)
         header.addWidget(self.settings_button)
@@ -302,15 +322,16 @@ class AssetItWindow(QMainWindow):
         side.addWidget(self._section_label("CATEGORIES"))
         self.category_list = QListWidget()
         self.category_list.setObjectName("categoryList")
-        for label, glyph in [("All Assets", "◇"), ("3D Models", "⬡"), ("Textures & Normals", "▧"), ("HDRI Maps", "☼"), ("Scenes & Presets", "▣")]:
-            item = QListWidgetItem(f"{glyph}  {label}")
+        for label, icon_name in [("All Assets", "grid"), ("3D Models", "cube"), ("Textures & Normals", "image"), ("HDRI Maps", "sun"), ("Scenes & Presets", "folder")]:
+            item = QListWidgetItem(self._svg_icon(icon_name, "#19c5f5", 17), label)
             item.setData(Qt.ItemDataRole.UserRole, label)
             self.category_list.addItem(item)
         self.category_list.setCurrentRow(0)
         self.category_list.currentRowChanged.connect(self._category_changed)
         side.addWidget(self.category_list)
         self.favorites_button = QToolButton()
-        self.favorites_button.setText("★   Favorites")
+        self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
+        self.favorites_button.setText("Favorites")
         self.favorites_button.setCheckable(True)
         self.favorites_button.toggled.connect(self._render_cards)
         side.addWidget(self.favorites_button)
@@ -318,6 +339,12 @@ class AssetItWindow(QMainWindow):
         self.favorites.hide()
         side.addWidget(self.favorites)
         side.addWidget(self._section_label("TAGS"))
+        self.tag_presets = QWidget()
+        self.tag_presets_layout = QGridLayout(self.tag_presets)
+        self.tag_presets_layout.setContentsMargins(0, 0, 0, 0)
+        self.tag_presets_layout.setSpacing(4)
+        self._build_tag_presets()
+        side.addWidget(self.tag_presets)
         self.tags_list = QListWidget()
         self.tags_list.setObjectName("tagsList")
         self.tags_list.setMaximumHeight(150)
@@ -370,7 +397,8 @@ class AssetItWindow(QMainWindow):
         self.search.textChanged.connect(self._render_cards)
         toolbar.addWidget(self.search)
         refresh = QToolButton()
-        refresh.setText("↻")
+        refresh.setIcon(self._svg_icon("refresh", "#aab8c5", 17))
+        refresh.setText("")
         refresh.setToolTip("Refresh (F5)")
         refresh.clicked.connect(self._scan_current)
         toolbar.addWidget(refresh)
@@ -421,7 +449,7 @@ class AssetItWindow(QMainWindow):
         self.info_tags.setWordWrap(True)
         info_layout.addWidget(self.info_tags)
         self.tag_input = QLineEdit()
-        self.tag_input.setPlaceholderText("Add tag…")
+        self.tag_input.setPlaceholderText("Add or create tag…")
         info_layout.addWidget(self.tag_input)
         add_tag = QPushButton("Add tag")
         add_tag.clicked.connect(self._add_tag)
@@ -460,8 +488,16 @@ class AssetItWindow(QMainWindow):
         self._refresh_sidebar_metadata()
         self._update_disk_usage()
 
+    def _settings_changed(self, key):
+        save_settings(self.settings)
+        if key == "show_hidden":
+            self._scan_current()
+        elif key == "show_disk_usage":
+            self._update_disk_usage()
+
     def _apply_ui_scale(self, scale):
         self.settings["ui_scale"] = float(scale)
+        save_settings(self.settings)
         import re
         scaled_style = re.sub(r"font-size:\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
         app = QApplication.instance()
@@ -501,9 +537,9 @@ class AssetItWindow(QMainWindow):
             for index, (label, glyph, count) in enumerate(zip(category_labels, category_glyphs, counts)):
                 item = self.category_list.item(index)
                 if item:
-                    item.setText(f"{glyph}  {label}   {count}")
+                    item.setText(f"{label}   {count}")
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
-            item = QListWidgetItem(f"#{tag}   {count}")
+            item = QListWidgetItem(self._svg_icon("star", "#19c5f5", 12), f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
             self.tags_list.addItem(item)
         self._update_disk_usage()
@@ -558,6 +594,54 @@ class AssetItWindow(QMainWindow):
         if 0 <= index < len(self.filter_buttons):
             self.filter_buttons[index].setChecked(True)
             self._render_cards()
+
+    def _build_tag_presets(self):
+        while self.tag_presets_layout.count():
+            item = self.tag_presets_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for index, tag in enumerate(DEFAULT_TAGS):
+            button = QToolButton()
+            button.setText("#" + tag)
+            button.setObjectName("tagChip")
+            button.setToolTip("Apply tag to selected asset")
+            button.clicked.connect(lambda checked=False, value=tag: self._apply_tag(value))
+            self.tag_presets_layout.addWidget(button, index // 3, index % 3)
+
+    def _apply_tag(self, tag):
+        if not self.current_asset:
+            self.status.showMessage("Select an asset first to apply a tag")
+            return
+        tags = self.settings.setdefault("asset_tags", {})
+        key = str(self.current_asset)
+        existing = tags.setdefault(key, [])
+        if tag.casefold() not in [value.casefold() for value in existing]:
+            existing.append(tag)
+        save_settings(self.settings)
+        self.select_asset(key)
+        self._refresh_sidebar_metadata()
+        self.status.showMessage(f"Applied #{tag}")
+
+    @staticmethod
+    def _svg_icon(name, color="#19c5f5", size=18):
+        paths = {
+            "cube": '<path d="M12 2 21 7v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10"/>',
+            "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L14.5 3h-5L9 6a7 7 0 0 0-1.7 1L5 6 3 9.5 5 11a7 7 0 0 0 0 2l-2 1.5L5 18l2.3-1a7 7 0 0 0 1.7 1l.5 3h5l.5-3a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>',
+            "grid": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+            "image": '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+            "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+            "folder": '<path d="M3 6h7l2 2h9v11H3z"/><path d="M3 6V4h7l2 2"/>',
+            "star": '<path d="m12 2 3 6.5 7 .8-5.2 4.8 1.5 6.9-6.3-3.5-6.3 3.5 1.5-6.9L2 9.3l7-.8z"/>',
+            "refresh": '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 9A7 7 0 0 1 18 6l2 6M4 12l2 6a7 7 0 0 0 12.5-3"/>'
+        }
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24"><g fill="none" stroke="{color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{paths.get(name, paths["cube"])}</g></svg>'
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
 
     @staticmethod
     def _section_label(text):
@@ -861,7 +945,10 @@ QLabel#brand { color: #e7f6ff; font-size: 18pt; font-weight: 600; }
 QLabel#logo { color: #1fc5f5; font-size: 22pt; font-weight: bold; }
 QLabel#muted, QLabel#sectionLabel { color: #89939d; }
 QLabel#sectionLabel { font-size: 8pt; font-weight: bold; letter-spacing: 1px; padding: 5px 0; }
-QLabel#preview { background: #191b1d; border: 1px solid #2c2f32; border-radius: 3px; color: #35c5f4; font-size: 15pt; }
+QLabel#preview { background-color: #191b22; border: 1px solid #2c3542; border-radius: 3px; color: #35c5f4; font-size: 11pt; }
+QLabel#formatBadge { background: #073b4a; color: #24d7ff; border: 1px solid #07566a; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; }
+QToolButton#tagChip { background: #171a22; color: #62d4ff; border: 1px solid #344052; border-radius: 10px; padding: 4px 6px; font-size: 8pt; }
+QToolButton#tagChip:hover { background: #123b4d; border-color: #16b9f0; }
 QFrame#assetCard { background: #25272a; border: 1px solid #34373b; border-radius: 5px; }
 QFrame#assetCard:hover { background: #2a2e32; border: 1px solid #0d9fce; }
 QLabel#assetName { color: #cbd1d7; font-size: 9pt; }
