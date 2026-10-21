@@ -511,10 +511,14 @@ class AssetItWindow(QMainWindow):
             label.setObjectName("infoText")
             label.setWordWrap(True)
             info_layout.addWidget(label)
-        self.info_tags = QLabel("Tags: —")
-        self.info_tags.setObjectName("infoText")
-        self.info_tags.setWordWrap(True)
-        info_layout.addWidget(self.info_tags)
+        tags_heading = QLabel("ASSIGNED TAGS")
+        tags_heading.setObjectName("sectionLabel")
+        info_layout.addWidget(tags_heading)
+        self.info_tags_container = QWidget()
+        self.info_tags_layout = QGridLayout(self.info_tags_container)
+        self.info_tags_layout.setContentsMargins(0, 0, 0, 0)
+        self.info_tags_layout.setSpacing(4)
+        info_layout.addWidget(self.info_tags_container)
         self.tag_input = QLineEdit()
         self.tag_input.setPlaceholderText("Add or create tag…")
         info_layout.addWidget(self.tag_input)
@@ -526,6 +530,10 @@ class AssetItWindow(QMainWindow):
         self.favorite_asset_button.toggled.connect(self._toggle_selected_favorite)
         info_layout.addWidget(self.favorite_asset_button)
         info_layout.addStretch()
+        self.bridge_button = QPushButton("↗  Drag into Blender / C4D")
+        self.bridge_button.setObjectName("primary")
+        self.bridge_button.clicked.connect(self._bridge_placeholder)
+        info_layout.addWidget(self.bridge_button)
         self.open_file_button = QPushButton("Open File")
         self.open_file_button.setEnabled(False)
         self.open_file_button.clicked.connect(self.open_selected)
@@ -534,6 +542,9 @@ class AssetItWindow(QMainWindow):
         self.open_folder_button.setEnabled(False)
         self.open_folder_button.clicked.connect(self.open_containing_folder)
         info_layout.addWidget(self.open_folder_button)
+        self.export_button = QPushButton("Export As…")
+        self.export_button.clicked.connect(self.export_selected)
+        info_layout.addWidget(self.export_button)
         splitter.addWidget(info)
         splitter.setSizes([220, 850, 270])
         self.sidebar_widget = sidebar
@@ -625,6 +636,48 @@ class AssetItWindow(QMainWindow):
             self.disk_usage_label.setText(f"Disk free: {usage.free / 1024**3:.1f} GB / {usage.total / 1024**3:.0f} GB")
         except OSError:
             self.disk_usage_label.setText("Disk usage unavailable")
+
+    def _render_inspector_tags(self, path):
+        while self.info_tags_layout.count():
+            item = self.info_tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        tags = self.settings.get("asset_tags", {}).get(str(path), [])
+        for index, tag in enumerate(tags):
+            chip = QToolButton()
+            chip.setObjectName("assignedTagChip")
+            chip.setText("#" + tag + "  ×")
+            chip.setToolTip("Click to remove this tag")
+            chip.clicked.connect(lambda checked=False, value=tag: self._remove_tag(value))
+            self.info_tags_layout.addWidget(chip, index // 2, index % 2)
+
+    def _remove_tag(self, tag):
+        if not self.current_asset:
+            return
+        key = str(self.current_asset)
+        tags = self.settings.setdefault("asset_tags", {}).get(key, [])
+        self.settings["asset_tags"][key] = [value for value in tags if value.casefold() != tag.casefold()]
+        save_settings(self.settings)
+        self.select_asset(key)
+        self._refresh_sidebar_metadata()
+
+    def _bridge_placeholder(self):
+        if not self.current_asset:
+            self.status.showMessage("Select an asset first")
+            return
+        self.status.showMessage("Bridge system is planned; Blender / Cinema 4D plugins are not installed yet.")
+
+    def export_selected(self):
+        if not self.current_asset or not self.current_asset.exists():
+            return
+        destination, _ = QFileDialog.getSaveFileName(self, "Export / Copy Asset As", self.current_asset.name, "All files (*.*)")
+        if not destination:
+            return
+        try:
+            shutil.copy2(self.current_asset, destination)
+            self.status.showMessage(f"Exported asset to {destination}")
+        except OSError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
 
     def _add_tag(self):
         if not self.current_asset or not self.tag_input.text().strip():
@@ -955,7 +1008,7 @@ class AssetItWindow(QMainWindow):
             self.info_modified.setText("DATE MODIFIED   —")
         self.info_format.setText("FORMAT   " + (path.suffix.upper().lstrip(".") or "Unknown") + " File")
         self.info_resolution.setText("RESOLUTION   —")
-        self.info_tags.setText("Tags: " + (", ".join("#" + tag for tag in self.settings.get("asset_tags", {}).get(str(path), [])) or "—"))
+        self._render_inspector_tags(path)
         is_favorite = str(path) in set(self.settings.get("favorites", []))
         self.favorite_asset_button.blockSignals(True)
         self.favorite_asset_button.setChecked(is_favorite)
@@ -1057,6 +1110,8 @@ QWidget#thumbContainer { background: #1a1b22; border: 1px solid #2c2f3b; border-
 QToolButton#cardFavorite { background: rgba(26,27,34,220); border: 1px solid #2c2f3b; border-radius: 9px; padding: 3px; margin: 4px; }
 QToolButton#tagChip { background: #121316; color: #00c3ff; border: 1px solid #2c2f3b; border-radius: 10px; padding: 3px 6px; font-size: 8pt; }
 QToolButton#tagChip:hover { background: #20222b; border-color: #00a3ff; }
+QToolButton#assignedTagChip { background: #121316; color: #00c3ff; border: 1px solid #2c2f3b; border-radius: 4px; padding: 4px 6px; font-size: 8pt; }
+QToolButton#assignedTagChip:hover { color: #ff7d90; border-color: #b44b63; }
 QFrame#assetCard { background: #20222b; border: 1px solid #2c2f3b; border-radius: 7px; }
 QFrame#assetCard:hover { background: #2a2d39; border: 1px solid #00a3ff; }
 QLabel#assetName { color: #e1e5ed; font-size: 9pt; }
