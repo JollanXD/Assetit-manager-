@@ -450,9 +450,29 @@ class AssetItWindow(QMainWindow):
         refresh.clicked.connect(self._scan_current)
         toolbar.addWidget(refresh)
         browser_layout.addLayout(toolbar)
-        self.count_label = QLabel("0 assets")
-        self.count_label.setObjectName("muted")
-        browser_layout.addWidget(self.count_label)
+        status_row = QHBoxLayout()
+        self.count_label = QLabel("0 Assets Found")
+        self.count_label.setObjectName("countLabel")
+        status_row.addWidget(self.count_label)
+        separator = QLabel("|")
+        separator.setObjectName("muted")
+        status_row.addWidget(separator)
+        filter_caption = QLabel("Filter:")
+        filter_caption.setObjectName("muted")
+        status_row.addWidget(filter_caption)
+        self.active_filter_badge = QLabel("All")
+        self.active_filter_badge.setObjectName("filterBadge")
+        status_row.addWidget(self.active_filter_badge)
+        status_row.addStretch()
+        sort_label = QLabel("Sort:")
+        sort_label.setObjectName("muted")
+        status_row.addWidget(sort_label)
+        self.sort_select = QComboBox()
+        self.sort_select.addItems(["Name (A-Z)", "Date Added", "File Size", "Resolution"])
+        self.sort_select.currentIndexChanged.connect(self._render_cards)
+        self.sort_select.setFixedWidth(130)
+        status_row.addWidget(self.sort_select)
+        browser_layout.addLayout(status_row)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -846,7 +866,19 @@ class AssetItWindow(QMainWindow):
             card.favorite_toggled.connect(self._toggle_favorite_path)
             card.context_requested.connect(self._asset_context_menu)
             self.grid.addWidget(card, index // cols, index % cols)
+        sort_mode = self.sort_select.currentIndex() if hasattr(self, "sort_select") else 0
+        if sort_mode == 1:
+            visible.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        elif sort_mode == 2:
+            visible.sort(key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
+        elif sort_mode == 3:
+            visible.sort(key=lambda p: self._resolution_sort_key(p), reverse=True)
+        else:
+            visible.sort(key=lambda p: p.name.casefold())
         self.count_label.setText(f"{len(visible)} Assets Found")
+        if hasattr(self, "active_filter_badge"):
+            selected_filter = self.search.text().strip() or (self.category_list.currentItem().text().split("   ")[0] if self.category_list.currentItem() else "All")
+            self.active_filter_badge.setText(selected_filter[:24])
         if not visible:
             self._show_empty("No matching assets found" if self.cards else "This library contains no supported assets")
 
@@ -859,6 +891,17 @@ class AssetItWindow(QMainWindow):
         self.settings["favorites"] = sorted(favorites)
         save_settings(self.settings)
         self._render_cards()
+
+    @staticmethod
+    def _resolution_sort_key(path):
+        if path.suffix.lower() not in IMAGE_EXTS:
+            return 0
+        try:
+            from PySide6.QtGui import QImageReader
+            size = QImageReader(str(path)).size()
+            return size.width() * size.height() if size.isValid() else 0
+        except Exception:
+            return 0
 
     def _asset_context_menu(self, path_string, global_pos):
         path = Path(path_string)
@@ -980,53 +1023,55 @@ class AssetItWindow(QMainWindow):
 
 
 STYLE = """
-QMainWindow, QDialog, QWidget { background: #202124; color: #d7dbe0; font-family: "Segoe UI"; font-size: 10pt; }
-QMenuBar { background: #25272a; color: #d7dbe0; border-bottom: 1px solid #34373b; }
+QMainWindow, QDialog, QWidget { background: #121316; color: #d8dbe4; font-family: "Segoe UI"; font-size: 9pt; }
+QMenuBar { background: #1a1b22; color: #a7adbc; border-bottom: 1px solid #2c2f3b; }
 QMenuBar::item { padding: 5px 10px; background: transparent; }
-QMenuBar::item:selected, QMenu::item:selected { background: #173d50; color: #54cfff; }
-QMenu { background: #292c30; border: 1px solid #41454a; }
+QMenuBar::item:selected, QMenu::item:selected { background: #2a2d39; color: #00d2ff; }
+QMenu { background: #1a1b22; border: 1px solid #2c2f3b; }
 QMenu::item { padding: 6px 24px; }
-QLineEdit, QComboBox { background: #181a1c; border: 1px solid #3b3f43; border-radius: 4px; padding: 7px; selection-background-color: #087db0; }
-QLineEdit:focus, QComboBox:focus { border: 1px solid #1db8ed; }
-QComboBox QAbstractItemView { background: #25272a; selection-background-color: #17445a; }
-QPushButton, QToolButton { background: #2b2e32; border: 1px solid #41454a; border-radius: 4px; padding: 7px 10px; }
-QPushButton:hover, QToolButton:hover { border-color: #16b9f0; color: #59d1ff; }
-QToolButton#filterButton { min-width: 28px; padding: 6px 9px; font-size: 13pt; }
-QToolButton#filterButton:checked { background: #123b4d; border: 1px solid #087fb1; color: #65d5ff; }
-QPushButton#primary { background: #123b4d; border: 1px solid #087fb1; color: #65d5ff; font-weight: 600; }
-QPushButton#primary:hover { background: #174c62; }
-QFrame#sidebar, QFrame#infoPanel { background: #242629; border: 1px solid #34373b; border-radius: 5px; }
+QLineEdit, QComboBox { background: #121316; border: 1px solid #2c2f3b; border-radius: 5px; padding: 6px 8px; selection-background-color: #0082d9; }
+QLineEdit:focus, QComboBox:focus { border: 1px solid #00a3ff; }
+QComboBox QAbstractItemView { background: #1a1b22; selection-background-color: #323645; }
+QPushButton, QToolButton { background: #20222b; border: 1px solid #2c2f3b; border-radius: 5px; padding: 6px 9px; }
+QPushButton:hover, QToolButton:hover { background: #2a2d39; border-color: #00a3ff; color: #eafaff; }
+QToolButton#filterButton { min-width: 27px; min-height: 25px; padding: 4px 7px; font-size: 11pt; }
+QToolButton#filterButton:checked { background: #323645; border: 1px solid #00a3ff; color: #00d2ff; }
+QPushButton#primary { background: #0082d9; border: 1px solid #0082d9; color: #ffffff; font-weight: 600; }
+QPushButton#primary:hover { background: #00a3ff; }
+QFrame#sidebar, QFrame#infoPanel { background: #1a1b22; border: none; border-radius: 0; }
 QListWidget { background: transparent; border: none; outline: none; }
-QListWidget::item { padding: 10px 7px; border-radius: 4px; }
-QListWidget::item:selected { background: #143b4c; color: #62d5ff; }
+QListWidget::item { padding: 7px 7px; border-radius: 5px; color: #c4c9d5; }
+QListWidget::item:selected { background: #323645; color: #00d2ff; }
 QListWidget#categoryList::item { padding: 7px 5px; }
-QListWidget#tagsList::item { padding: 4px 5px; color: #59d0ff; }
-QLabel#brand { color: #e7f6ff; font-size: 18pt; font-weight: 600; }
-QLabel#logo { color: #1fc5f5; font-size: 22pt; font-weight: bold; }
-QLabel#muted, QLabel#sectionLabel { color: #89939d; }
-QLabel#sectionLabel { font-size: 8pt; font-weight: bold; letter-spacing: 1px; padding: 5px 0; }
-QLabel#preview { background-color: #191b22; border: 1px solid #2c3542; border-radius: 3px; color: #35c5f4; font-size: 11pt; }
-QLabel#formatBadge { background: #073b4a; color: #24d7ff; border: 1px solid #07566a; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; margin: 5px; }
-QLabel#resolutionBadge { background: #171a22; color: #b8c7d5; border-radius: 3px; padding: 2px 4px; font-size: 7pt; margin: 5px; }
-QWidget#thumbContainer { background: #191b22; border: 1px solid #2c3542; border-radius: 3px; }
-QToolButton#cardFavorite { background: #171a22; border: 1px solid #344052; border-radius: 9px; padding: 3px; margin: 4px; }
-QToolButton#tagChip { background: #171a22; color: #62d4ff; border: 1px solid #344052; border-radius: 10px; padding: 4px 6px; font-size: 8pt; }
-QToolButton#tagChip:hover { background: #123b4d; border-color: #16b9f0; }
-QFrame#assetCard { background: #25272a; border: 1px solid #34373b; border-radius: 5px; }
-QFrame#assetCard:hover { background: #2a2e32; border: 1px solid #0d9fce; }
-QLabel#assetName { color: #cbd1d7; font-size: 9pt; }
-QLabel#infoPreview { background: #191b1d; border: 1px solid #34373b; border-radius: 4px; color: #8e9aa5; }
-QLabel#infoName { color: #59d0ff; font-weight: bold; padding-top: 7px; }
-QLabel#infoText { color: #a9b1b8; font-size: 9pt; padding: 3px 0; }
-QPushButton:checked { background: #123b4d; border-color: #087fb1; color: #65d5ff; }
-QLabel#emptyState { color: #78848d; font-size: 12pt; padding: 40px; }
+QListWidget#tagsList::item { padding: 4px 5px; color: #00c3ff; }
+QLabel#brand { color: #00d2ff; font-size: 16pt; font-weight: 700; }
+QLabel#logo { color: #00d2ff; font-size: 20pt; font-weight: bold; }
+QLabel#muted, QLabel#sectionLabel { color: #788195; }
+QLabel#countLabel { color: #e1e5ed; font-weight: 600; }
+QLabel#filterBadge { color: #d5d9e3; background: #2c2f3b; border-radius: 4px; padding: 3px 8px; font-family: Consolas, monospace; }
+QLabel#sectionLabel { font-size: 8pt; font-weight: 600; letter-spacing: 1px; padding: 5px 0; }
+QLabel#preview { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 3px; color: #00d2ff; font-size: 11pt; }
+QLabel#formatBadge { background: rgba(26,27,34,230); color: #00d2ff; border: 1px solid #2c2f3b; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; margin: 5px; }
+QLabel#resolutionBadge { background: rgba(26,27,34,220); color: #c1c8d6; border-radius: 3px; padding: 2px 4px; font-size: 7pt; margin: 5px; }
+QWidget#thumbContainer { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 3px; }
+QToolButton#cardFavorite { background: rgba(26,27,34,220); border: 1px solid #2c2f3b; border-radius: 9px; padding: 3px; margin: 4px; }
+QToolButton#tagChip { background: #121316; color: #00c3ff; border: 1px solid #2c2f3b; border-radius: 10px; padding: 3px 6px; font-size: 8pt; }
+QToolButton#tagChip:hover { background: #20222b; border-color: #00a3ff; }
+QFrame#assetCard { background: #20222b; border: 1px solid #2c2f3b; border-radius: 7px; }
+QFrame#assetCard:hover { background: #2a2d39; border: 1px solid #00a3ff; }
+QLabel#assetName { color: #e1e5ed; font-size: 9pt; }
+QLabel#infoPreview { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 6px; color: #8e9aa5; }
+QLabel#infoName { color: #f0f3f8; font-weight: 600; padding-top: 7px; }
+QLabel#infoText { color: #8993a7; font-size: 9pt; padding: 3px 0; }
+QPushButton:checked { background: #323645; border-color: #00a3ff; color: #00d2ff; }
+QLabel#emptyState { color: #788195; font-size: 12pt; padding: 40px; }
 QCheckBox { spacing: 8px; }
 QCheckBox::indicator { width: 14px; height: 14px; }
-QCheckBox::indicator:checked { background: #0b9dce; border: 1px solid #35c7f5; }
-QStatusBar { background: #1a1c1e; color: #8d969e; border-top: 1px solid #34373b; }
-QScrollArea { background: transparent; }
-QSplitter::handle { background: #202124; width: 5px; }
-QToolTip { background: #30343a; color: #e8edf2; border: 1px solid #0e94c4; padding: 4px; }
+QCheckBox::indicator:checked { background: #00a3ff; border: 1px solid #00d2ff; }
+QStatusBar { background: #121316; color: #788195; border-top: 1px solid #2c2f3b; }
+QScrollArea { background: #121316; border: none; }
+QSplitter::handle { background: #121316; width: 1px; }
+QToolTip { background: #20222b; color: #e8edf2; border: 1px solid #00a3ff; padding: 4px; }
 """
 
 
