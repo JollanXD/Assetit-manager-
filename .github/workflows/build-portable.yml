@@ -48,11 +48,11 @@ jobs:
           Copy-Item README.md dist/AssetIt/README.txt
           Compress-Archive -Path dist/AssetIt -DestinationPath dist/AssetIt-Portable-Windows-x64.zip -Force
 
-      - name: Upload portable ZIP artifact
+      - name: Upload ready-to-extract portable folder
         uses: actions/upload-artifact@v4
         with:
           name: AssetIt-Portable-Windows-x64
-          path: dist/AssetIt-Portable-Windows-x64.zip
+          path: dist/AssetIt/
           if-no-files-found: error
           retention-days: 14
 
