@@ -97,8 +97,9 @@ class AssetCard(QFrame):
     activated = Signal(str)
     selected = Signal(str)
     context_requested = Signal(str, object)
+    favorite_toggled = Signal(str)
 
-    def __init__(self, path: Path, thumb_size: int, parent=None):
+    def __init__(self, path: Path, thumb_size: int, is_favorite=False, parent=None):
         super().__init__(parent)
         self.path = path
         self.setObjectName("assetCard")
@@ -106,41 +107,86 @@ class AssetCard(QFrame):
         self.setMinimumWidth(150)
         self.setMaximumWidth(260)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(7)
+        layout.setContentsMargins(7, 7, 7, 7)
+        layout.setSpacing(5)
+
+        thumb = QWidget()
+        thumb.setObjectName("thumbContainer")
+        thumb.setFixedHeight(thumb_size)
+        thumb_layout = QGridLayout(thumb)
+        thumb_layout.setContentsMargins(0, 0, 0, 0)
+        thumb_layout.setSpacing(0)
         preview = QLabel()
         preview.setObjectName("preview")
         preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview.setFixedHeight(thumb_size)
         preview.setMinimumWidth(120)
+        preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         if path.suffix.lower() in IMAGE_EXTS:
             pix = QPixmap(str(path))
             if not pix.isNull():
                 preview.setPixmap(pix.scaled(QSize(thumb_size, thumb_size), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
             else:
-                preview.setText("IMAGE")
+                preview.setText("Preview unavailable")
         else:
             preview.setText(self._type_label(path))
+        thumb_layout.addWidget(preview, 0, 0)
+
+        badge = QLabel(path.suffix.upper().lstrip(".") or "FILE")
+        badge.setObjectName("formatBadge")
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setFixedWidth(48)
+        thumb_layout.addWidget(badge, 0, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+
+        star = QToolButton()
+        star.setObjectName("cardFavorite")
+        star.setText("")
+        star.setIcon(AssetCard._icon("star", "#ffbf3f" if is_favorite else "#8c9aaa", 16))
+        star.setToolTip("Remove from favorites" if is_favorite else "Add to favorites")
+        star.clicked.connect(lambda: self.favorite_toggled.emit(str(self.path)))
+        thumb_layout.addWidget(star, 0, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+
+        try:
+            if path.suffix.lower() in IMAGE_EXTS:
+                image = QPixmap(str(path))
+                detail = QLabel(f"{image.width()}²" if not image.isNull() else "")
+            else:
+                detail = QLabel("")
+        except OSError:
+            detail = QLabel("")
+        detail.setObjectName("resolutionBadge")
+        thumb_layout.addWidget(detail, 0, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+
         name = QLabel(path.name)
         name.setObjectName("assetName")
         name.setWordWrap(True)
-        name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft)
         name.setToolTip(str(path))
-        layout.addWidget(preview)
+        layout.addWidget(thumb)
         layout.addWidget(name)
         self.setToolTip(str(path))
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(lambda pos: self.context_requested.emit(str(self.path), self.mapToGlobal(pos)))
 
     @staticmethod
+    def _icon(name, color, size):
+        paths = {
+            "star": '<path d="m12 2 3 6.5 7 .8-5.2 4.8 1.5 6.9-6.3-3.5-6.3 3.5 1.5-6.9L2 9.3l7-.8z"/>'
+        }
+        svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24"><path d="{paths[name].split(chr(34))[0] if False else ""}" fill="none"/><g fill="{color}" stroke="{color}" stroke-width="1.2">{paths[name]}</g></svg>'
+        renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return QIcon(pixmap)
+
+    @staticmethod
     def _type_label(path):
-        ext = path.suffix.lower().lstrip(".").upper() or "FILE"
-        return "◇\n\n" + ext
+        return path.suffix.lower().lstrip(".").upper() or "FILE"
 
     def mousePressEvent(self, event):
         self.selected.emit(str(self.path))
-        if event.button() == Qt.MouseButton.LeftButton and event.type() == event.Type.MouseButtonDblClick:
-            self.activated.emit(str(self.path))
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
@@ -794,14 +840,25 @@ class AssetItWindow(QMainWindow):
         cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
         thumb = self.settings.get("thumbnail_size", 150)
         for index, path in enumerate(visible):
-            card = AssetCard(path, thumb)
+            card = AssetCard(path, thumb, str(path) in favorites)
             card.selected.connect(self.select_asset)
             card.activated.connect(self._open_path)
+            card.favorite_toggled.connect(self._toggle_favorite_path)
             card.context_requested.connect(self._asset_context_menu)
             self.grid.addWidget(card, index // cols, index % cols)
         self.count_label.setText(f"{len(visible)} Assets Found")
         if not visible:
             self._show_empty("No matching assets found" if self.cards else "This library contains no supported assets")
+
+    def _toggle_favorite_path(self, path_string):
+        favorites = set(self.settings.get("favorites", []))
+        if path_string in favorites:
+            favorites.remove(path_string)
+        else:
+            favorites.add(path_string)
+        self.settings["favorites"] = sorted(favorites)
+        save_settings(self.settings)
+        self._render_cards()
 
     def _asset_context_menu(self, path_string, global_pos):
         path = Path(path_string)
@@ -949,7 +1006,10 @@ QLabel#logo { color: #1fc5f5; font-size: 22pt; font-weight: bold; }
 QLabel#muted, QLabel#sectionLabel { color: #89939d; }
 QLabel#sectionLabel { font-size: 8pt; font-weight: bold; letter-spacing: 1px; padding: 5px 0; }
 QLabel#preview { background-color: #191b22; border: 1px solid #2c3542; border-radius: 3px; color: #35c5f4; font-size: 11pt; }
-QLabel#formatBadge { background: #073b4a; color: #24d7ff; border: 1px solid #07566a; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; }
+QLabel#formatBadge { background: #073b4a; color: #24d7ff; border: 1px solid #07566a; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; margin: 5px; }
+QLabel#resolutionBadge { background: #171a22; color: #b8c7d5; border-radius: 3px; padding: 2px 4px; font-size: 7pt; margin: 5px; }
+QWidget#thumbContainer { background: #191b22; border: 1px solid #2c3542; border-radius: 3px; }
+QToolButton#cardFavorite { background: #171a22; border: 1px solid #344052; border-radius: 9px; padding: 3px; margin: 4px; }
 QToolButton#tagChip { background: #171a22; color: #62d4ff; border: 1px solid #344052; border-radius: 10px; padding: 4px 6px; font-size: 8pt; }
 QToolButton#tagChip:hover { background: #123b4d; border-color: #16b9f0; }
 QFrame#assetCard { background: #25272a; border: 1px solid #34373b; border-radius: 5px; }
