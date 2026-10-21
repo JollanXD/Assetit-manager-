@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "AssetIt"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 DEFAULT_TAGS = ["PBR", "Grid", "Sci-Fi", "Seamless", "NormalMap", "4K", "HardSurface", "Arasaka", "Metal", "Blueprint", "HDRI", "8K", "Outdoor"]
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
 HDRI_EXTS = {".exr", ".hdr", ".tx"}
@@ -363,12 +363,19 @@ class AssetItWindow(QMainWindow):
         sidebar.setMaximumWidth(280)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(8, 10, 8, 8)
-        side.addWidget(self._section_label("LIBRARIES"))
+        library_heading = QHBoxLayout()
+        library_heading.addWidget(self._section_label("LIBRARIES"))
+        library_heading.addStretch()
+        self.library_path_badge = QLabel("")
+        self.library_path_badge.setObjectName("pathBadge")
+        library_heading.addWidget(self.library_path_badge)
+        side.addLayout(library_heading)
         self.library_list = QListWidget()
         self.library_list.setObjectName("libraryList")
         self.library_list.currentRowChanged.connect(self._library_changed)
         self.library_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.library_list.customContextMenuRequested.connect(self._library_context_menu)
+        self.library_list.setMaximumHeight(105)
         side.addWidget(self.library_list)
         side.addWidget(self._section_label("CATEGORIES"))
         self.category_list = QListWidget()
@@ -379,6 +386,7 @@ class AssetItWindow(QMainWindow):
             self.category_list.addItem(item)
         self.category_list.setCurrentRow(0)
         self.category_list.currentRowChanged.connect(self._category_changed)
+        self.category_list.setMaximumHeight(178)
         side.addWidget(self.category_list)
         self.favorites_button = QToolButton()
         self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
@@ -387,7 +395,7 @@ class AssetItWindow(QMainWindow):
         self.favorites_button.toggled.connect(self._render_cards)
         side.addWidget(self.favorites_button)
         self.favorites = QCheckBox("Show favorites only")
-        self.favorites.hide()
+        self.favorites.setText("Show Favorites Only")
         side.addWidget(self.favorites)
         side.addWidget(self._section_label("TAGS"))
         self.tag_presets = QWidget()
@@ -400,7 +408,8 @@ class AssetItWindow(QMainWindow):
         self.tags_list.setObjectName("tagsList")
         self.tags_list.setMaximumHeight(150)
         self.tags_list.itemClicked.connect(self._tag_clicked)
-        side.addWidget(self.tags_list)
+        self.tags_list.hide()
+        side.addStretch(1)
         self.disk_usage_label = QLabel("")
         self.disk_usage_label.setObjectName("muted")
         side.addWidget(self.disk_usage_label)
@@ -414,6 +423,7 @@ class AssetItWindow(QMainWindow):
         toolbar = QHBoxLayout()
         self.breadcrumb = QLabel("Choose a library")
         self.breadcrumb.setObjectName("muted")
+        self.breadcrumb.setMinimumWidth(80)
         toolbar.addWidget(self.breadcrumb)
         self.filter_group = QWidget()
         filter_layout = QHBoxLayout(self.filter_group)
@@ -432,6 +442,12 @@ class AssetItWindow(QMainWindow):
             filter_layout.addWidget(button)
             self.filter_buttons.append(button)
         self.filter_buttons[0].setChecked(True)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search assets, formats, tags… (Ctrl+F)")
+        self.search.setClearButtonEnabled(True)
+        self.search.setMinimumWidth(150)
+        self.search.setMaximumWidth(380)
+        toolbar.addWidget(self.search, 1)
         toolbar.addWidget(self.filter_group)
         self.thumb_size = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size.setRange(90, 240)
@@ -441,13 +457,7 @@ class AssetItWindow(QMainWindow):
         self.thumb_size.setValue(int(self.settings.get("thumbnail_size", 150)))
         self.thumb_size.valueChanged.connect(self._thumbnail_size_changed)
         toolbar.addWidget(self.thumb_size)
-        toolbar.addStretch()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search assets…")
-        self.search.setClearButtonEnabled(True)
-        self.search.setMaximumWidth(320)
         self.search.textChanged.connect(self._render_cards)
-        toolbar.addWidget(self.search)
         refresh = QToolButton()
         refresh.setIcon(self._svg_icon("refresh", "#aab8c5", 17))
         refresh.setText("")
@@ -1139,6 +1149,7 @@ QLabel#logo { color: #00d2ff; font-size: 20pt; font-weight: bold; }
 QLabel#muted, QLabel#sectionLabel { color: #788195; }
 QLabel#countLabel { color: #e1e5ed; font-weight: 600; }
 QLabel#filterBadge { color: #d5d9e3; background: #2c2f3b; border-radius: 4px; padding: 3px 8px; font-family: Consolas, monospace; }
+QLabel#pathBadge { color: #00c3ff; background: #101b28; border: 1px solid #16425b; border-radius: 4px; padding: 3px 6px; font-family: Consolas, monospace; font-size: 8pt; }
 QLabel#sectionLabel { font-size: 8pt; font-weight: 600; letter-spacing: 1px; padding: 5px 0; }
 QLabel#preview { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 3px; color: #00d2ff; font-size: 11pt; }
 QLabel#formatBadge { background: rgba(26,27,34,230); color: #00d2ff; border: 1px solid #2c2f3b; border-radius: 4px; padding: 2px 5px; font-size: 7pt; font-weight: bold; margin: 5px; }
