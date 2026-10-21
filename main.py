@@ -854,6 +854,9 @@ class AssetItWindow(QMainWindow):
             return
         self.current_library = Path(self.library_list.item(row).data(Qt.ItemDataRole.UserRole))
         self.breadcrumb.setText(str(self.current_library))
+        if hasattr(self, "library_path_badge"):
+            self.library_path_badge.setText(self.current_library.name)
+            self.library_path_badge.setToolTip(str(self.current_library))
         self._update_disk_usage()
         self._scan_current()
 
