@@ -621,7 +621,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    scale = float(load_settings().get("ui_scale", 1.0))
+    import re
+    scaled_style = re.sub(r"font-size:\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
+    app.setStyleSheet(scaled_style)
     window = AssetItWindow()
     window.show()
     sys.exit(app.exec())
