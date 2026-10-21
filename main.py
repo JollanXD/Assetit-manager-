@@ -158,6 +158,7 @@ class SettingsDialog(QDialog):
         self.scale.setSingleStep(10)
         self.scale.setSuffix("%")
         self.scale.setValue(round(float(settings.get("ui_scale", 1.0)) * 100))
+        self.scale.valueChanged.connect(self._apply_scale_live)
         form.addRow("Interface scale", self.scale)
         form.addRow("", self.hidden)
         root.addLayout(form)
@@ -175,6 +176,16 @@ class SettingsDialog(QDialog):
         buttons.addWidget(cancel)
         buttons.addWidget(save)
         root.addLayout(buttons)
+
+    def _apply_scale_live(self, value):
+        scale = value / 100.0
+        app = QApplication.instance()
+        if app:
+            font = app.font()
+            font.setPointSizeF(10 * scale)
+            app.setFont(font)
+        if self.parent():
+            self.parent()._apply_ui_scale(scale)
 
     def accept(self):
         self.settings["ui_scale"] = self.scale.value() / 100.0
@@ -279,6 +290,8 @@ class AssetItWindow(QMainWindow):
         self.library_list = QListWidget()
         self.library_list.setObjectName("libraryList")
         self.library_list.currentRowChanged.connect(self._library_changed)
+        self.library_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.library_list.customContextMenuRequested.connect(self._library_context_menu)
         side.addWidget(self.library_list, 1)
         self.favorites = QCheckBox("Show favorites only")
         self.favorites.setChecked(False)
@@ -398,6 +411,15 @@ class AssetItWindow(QMainWindow):
         self.setStatusBar(self.status)
         self.status.showMessage("Ready")
 
+    def _apply_ui_scale(self, scale):
+        self.settings["ui_scale"] = float(scale)
+        import re
+        scaled_style = re.sub(r"font-size:\\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(scaled_style)
+        self._render_cards()
+
     def _toggle_panel(self, panel):
         panel.setVisible(not panel.isVisible())
 
@@ -416,11 +438,34 @@ class AssetItWindow(QMainWindow):
         label.setObjectName("sectionLabel")
         return label
 
+    def _library_context_menu(self, pos):
+        item = self.library_list.itemAt(pos)
+        if not item:
+            return
+        path = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        rename_action = menu.addAction("Rename display name…")
+        remove_action = menu.addAction("Remove library")
+        chosen = menu.exec(self.library_list.mapToGlobal(pos))
+        if chosen == remove_action:
+            self.settings["libraries"] = [p for p in self.settings.get("libraries", []) if p != path]
+            save_settings(self.settings)
+            self.refresh_libraries()
+        elif chosen == rename_action:
+            from PySide6.QtWidgets import QInputDialog
+            name, ok = QInputDialog.getText(self, "Library display name", "Name:", text=self.settings.get("library_names", {}).get(path, Path(path).name))
+            if ok and name.strip():
+                self.settings.setdefault("library_names", {})[path] = name.strip()
+                save_settings(self.settings)
+                self.refresh_libraries()
+
     def refresh_libraries(self):
         self.library_list.blockSignals(True)
         self.library_list.clear()
         for path in self.settings.get("libraries", []):
-            item = QListWidgetItem("▣  " + Path(path).name)
+            display_name = self.settings.get("library_names", {}).get(path, Path(path).name)
+            icon = self.settings.get("library_icons", {}).get(path, "▣")
+            item = QListWidgetItem(icon + "  " + display_name)
             item.setToolTip(path)
             item.setData(Qt.ItemDataRole.UserRole, path)
             self.library_list.addItem(item)
