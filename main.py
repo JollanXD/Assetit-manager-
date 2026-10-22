@@ -69,6 +69,8 @@ class ThumbnailBatchWorker(QThread):
 
     def run(self):
         for path in self.paths:
+            if self.isInterruptionRequested():
+                return
             try:
                 cache_path = thumbnail_cache_path(path, self.size)
                 image = QImageReader(str(cache_path)).read() if cache_path.is_file() else None
@@ -1000,6 +1002,9 @@ class AssetItWindow(QMainWindow):
         # Invalidate any queued card batches so filtering never leaves stale cards behind.
         self._render_generation += 1
         generation = self._render_generation
+        for worker in list(getattr(self, "_thumbnail_workers", [])):
+            if worker.isRunning():
+                worker.requestInterruption()
         while self.grid.count():
             item = self.grid.takeAt(0)
             widget = item.widget()
@@ -1212,6 +1217,15 @@ class AssetItWindow(QMainWindow):
             except Exception:
                 self.info_color_space.setText("COLOR SPACE   Unknown")
             pix = cached_preview(path, 240)
+            if pix.isNull():
+                # Inspector preview is a one-off decode; the grid remains fully asynchronous.
+                inspector_reader = QImageReader(str(path))
+                inspector_reader.setAutoTransform(True)
+                source_size = inspector_reader.size()
+                if source_size.isValid():
+                    inspector_reader.setScaledSize(source_size.scaled(QSize(240, 180), Qt.AspectRatioMode.KeepAspectRatio))
+                inspector_image = inspector_reader.read()
+                pix = QPixmap.fromImage(inspector_image) if not inspector_image.isNull() else QPixmap()
             if not pix.isNull():
                 self.info_preview.setPixmap(pix)
             else:
