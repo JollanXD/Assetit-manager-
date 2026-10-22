@@ -1123,18 +1123,15 @@ class AssetItWindow(QMainWindow):
         self.info_format.setText("FORMAT   " + (path.suffix.upper().lstrip(".") or "Unknown") + " File")
         self.info_resolution.setText("RESOLUTION   —")
         self._render_inspector_tags(path)
-        is_favorite = str(path) in set(self.settings.get("favorites", []))
-        self.favorite_asset_button.blockSignals(True)
-        self.favorite_asset_button.setChecked(is_favorite)
-        self.favorite_asset_button.setText("In Favorites" if is_favorite else "Add to Favorites")
-        self.favorite_asset_button.setIcon(self._svg_icon("star", "#ffbf3f" if is_favorite else "#8c9aaa", 16))
-        self.favorite_asset_button.blockSignals(False)
         self.info_preview.clear()
         if path.suffix.lower() in IMAGE_EXTS:
-            pix = QPixmap(str(path))
+            reader = QImageReader(str(path))
+            image_size = reader.size()
+            if image_size.isValid():
+                self.info_resolution.setText(f"RESOLUTION   {image_size.width()} × {image_size.height()} px")
+            pix = cached_preview(path, 240)
             if not pix.isNull():
-                self.info_resolution.setText(f"RESOLUTION   {pix.width()} × {pix.height()} px")
-                self.info_preview.setPixmap(pix.scaled(self.info_preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                self.info_preview.setPixmap(pix)
             else:
                 self.info_preview.setText("Preview unavailable")
         else:
