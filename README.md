@@ -22,7 +22,7 @@ python main.py
 ```
 
 ## Portable build
-Push to `main` or manually run the **Build portable Windows app** workflow. The workflow uploads a ZIP artifact. To publish a GitHub Release, push a version tag such as `v0.1.0`.
+Push to `main` or manually run the **Build portable Windows app** workflow. The workflow uploads the ready-to-use portable folder as an Actions artifact; downloading that artifact creates one outer download archive, but it no longer contains a second ZIP. Versioned GitHub Releases include a flattened `AssetIt-Portable-Windows-x64.zip` with `AssetIt.exe` at the archive root. To publish a GitHub Release, push a version tag such as `v0.3.0`.
 
 ## Data locations
 Settings and cache live in `%LOCALAPPDATA%/AssetIt`, separate from the portable app folder. User asset libraries are never moved or modified by scanning.
@@ -31,4 +31,4 @@ Settings and cache live in `%LOCALAPPDATA%/AssetIt`, separate from the portable 
 Place plugins in `Plugins/<plugin_name>/plugin.json`. This is an initial plugin discovery scaffold; third-party Python plugins should only be installed from sources you trust.
 
 ## Current status
-Early foundation build. Asset indexing and image preview are functional foundations; DCC bridges and richer 3D previews are planned.
+Early foundation build (0.3.x). Thumbnail reads are cached and scaled before decoding to reduce disk I/O and UI stalls; changing favorites updates the existing card instead of rebuilding the whole grid. The Inspector has a copyable file path, compact tag entry, an Explorer selection action, and a placeholder Import To chooser. DCC bridge plugins are not implemented yet.
