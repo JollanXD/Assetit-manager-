@@ -1127,7 +1127,7 @@ class AssetItWindow(QMainWindow):
         card = self._card_widgets.get(path_string)
         if card:
             card.set_favorite(path_string in favorites)
-        if self.favorites.isChecked() or self.favorites_button.isChecked():
+        if self.favorites_button.isChecked():
             self._render_cards()
         self._refresh_sidebar_metadata()
 
