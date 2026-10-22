@@ -649,7 +649,14 @@ class AssetItWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(scaled_style)
-        self._render_cards()
+        icon_size = max(10, round(18 * scale))
+        for widget in self.findChildren(QToolButton):
+            widget.setIconSize(QSize(icon_size, icon_size))
+        for widget in self.findChildren(QPushButton):
+            widget.setIconSize(QSize(icon_size, icon_size))
+        if hasattr(self, "logo"):
+            self.logo.setPixmap(self._make_icon().pixmap(max(16, round(30 * scale)), max(16, round(30 * scale))))
+        # Do not rebuild cards: thumbnails remain cached while the interface scales.
 
     def _toggle_panel(self, panel):
         panel.setVisible(not panel.isVisible())
