@@ -361,6 +361,7 @@ class AssetItWindow(QMainWindow):
         header = QHBoxLayout()
         logo = QLabel()
         logo.setObjectName("logo")
+        self.logo = logo
         logo.setFixedSize(30, 30)
         logo.setPixmap(self._make_icon().pixmap(30, 30))
         title = QLabel("AssetIt")
