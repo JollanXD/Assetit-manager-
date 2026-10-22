@@ -420,7 +420,7 @@ class AssetItWindow(QMainWindow):
         side.addWidget(self.category_list)
         self.favorites_button = QToolButton()
         self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
-        self.favorites_button.setText("Favorites")
+        self.favorites_button.setText("Show Favorites Only")
         self.favorites_button.setCheckable(True)
         self.favorites_button.toggled.connect(self._render_cards)
         side.addWidget(self.favorites_button)
@@ -443,6 +443,12 @@ class AssetItWindow(QMainWindow):
         self.disk_usage_label = QLabel("")
         self.disk_usage_label.setObjectName("muted")
         side.addWidget(self.disk_usage_label)
+        self.disk_usage_bar = QProgressBar()
+        self.disk_usage_bar.setRange(0, 100)
+        self.disk_usage_bar.setTextVisible(False)
+        self.disk_usage_bar.setFixedHeight(5)
+        self.disk_usage_bar.setObjectName("diskUsageBar")
+        side.addWidget(self.disk_usage_bar)
         self._refresh_sidebar_metadata()
         splitter.addWidget(sidebar)
 
@@ -689,11 +695,17 @@ class AssetItWindow(QMainWindow):
             return
         enabled = bool(self.settings.get("show_disk_usage", False))
         self.disk_usage_label.setVisible(enabled)
+        if hasattr(self, "disk_usage_bar"):
+            self.disk_usage_bar.setVisible(enabled)
         if not enabled or not self.current_library:
             return
         try:
             usage = shutil.disk_usage(self.current_library)
-            self.disk_usage_label.setText(f"Disk free: {usage.free / 1024**3:.1f} GB / {usage.total / 1024**3:.0f} GB")
+            used_pct = int((usage.total - usage.free) * 100 / max(1, usage.total))
+            self.disk_usage_label.setText(f"Local Vault   {usage.free / 1024**3:.1f} GB free / {usage.total / 1024**3:.0f} GB")
+            if hasattr(self, "disk_usage_bar"):
+                self.disk_usage_bar.setValue(used_pct)
+                self.disk_usage_bar.setToolTip(f"{used_pct}% used")
         except OSError:
             self.disk_usage_label.setText("Disk usage unavailable")
 
@@ -1244,6 +1256,8 @@ QLabel#logo { color: #00d2ff; font-size: 20pt; font-weight: bold; }
 QLabel#muted, QLabel#sectionLabel { color: #788195; }
 QLabel#countLabel { color: #e1e5ed; font-weight: 600; }
 QLabel#filterBadge { color: #d5d9e3; background: #2c2f3b; border-radius: 4px; padding: 3px 8px; font-family: Consolas, monospace; }
+QProgressBar#diskUsageBar { background: #2c2f3b; border: 0; border-radius: 2px; }
+QProgressBar#diskUsageBar::chunk { background: #00a3ff; border-radius: 2px; }
 QLabel#pathBadge { color: #00c3ff; background: #101b28; border: 1px solid #16425b; border-radius: 4px; padding: 3px 6px; font-family: Consolas, monospace; font-size: 8pt; }
 QLabel#sectionLabel { font-size: 8pt; font-weight: 600; letter-spacing: 1px; padding: 5px 0; }
 QLabel#preview { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 3px; color: #00d2ff; font-size: 11pt; }
