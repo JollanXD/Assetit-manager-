@@ -557,6 +557,20 @@ class AssetItWindow(QMainWindow):
             label.setObjectName("infoText")
             label.setWordWrap(True)
             info_layout.addWidget(label)
+        path_heading = QLabel("FILE PATH")
+        path_heading.setObjectName("sectionLabel")
+        info_layout.addWidget(path_heading)
+        path_row = QHBoxLayout()
+        self.info_path_edit = QLineEdit()
+        self.info_path_edit.setReadOnly(True)
+        self.info_path_edit.setPlaceholderText("Select an asset")
+        copy_path = QToolButton()
+        copy_path.setText("Copy")
+        copy_path.setToolTip("Copy full path")
+        copy_path.clicked.connect(lambda: QApplication.clipboard().setText(self.info_path_edit.text()))
+        path_row.addWidget(self.info_path_edit, 1)
+        path_row.addWidget(copy_path)
+        info_layout.addLayout(path_row)
         tags_heading = QLabel("ASSIGNED TAGS")
         tags_heading.setObjectName("sectionLabel")
         info_layout.addWidget(tags_heading)
@@ -1082,6 +1096,8 @@ class AssetItWindow(QMainWindow):
         self.info_name.setText(path.name)
         self.info_type.setText("TYPE   " + (path.suffix[1:].upper() if path.suffix else "FILE"))
         self.info_path.setText("PATH   " + str(path))
+        if hasattr(self, "info_path_edit"):
+            self.info_path_edit.setText(str(path))
         try:
             size = path.stat().st_size
             self.info_size.setText(f"FILE SIZE   {size / 1024:.1f} KB" if size < 1024**2 else f"FILE SIZE   {size / 1024**2:.2f} MB")
@@ -1135,6 +1151,46 @@ class AssetItWindow(QMainWindow):
     def open_selected(self):
         if self.current_asset and self.current_asset.exists():
             os.startfile(str(self.current_asset)) if os.name == "nt" else __import__("subprocess").Popen(["xdg-open", str(self.current_asset)])
+
+    def open_in_explorer(self):
+        if not self.current_asset or not self.current_asset.exists():
+            return
+        if os.name == "nt":
+            import subprocess
+            subprocess.Popen(["explorer.exe", "/select,", str(self.current_asset)])
+        else:
+            self.open_containing_folder()
+
+    def _import_to(self):
+        if not self.current_asset or not self.current_asset.exists():
+            self.status.showMessage("Select an asset first")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Import asset to")
+        dialog.setMinimumWidth(360)
+        layout = QVBoxLayout(dialog)
+        prompt = QLabel("Choose a target application for:\n" + self.current_asset.name)
+        prompt.setWordWrap(True)
+        layout.addWidget(prompt)
+        app_choice = QComboBox()
+        app_choice.addItems(["Active bridge (if available)", "Blender", "Autodesk Maya", "Cinema 4D"])
+        layout.addWidget(app_choice)
+        note = QLabel("Bridge plugins are not installed yet. This selection prepares the import workflow.")
+        note.setObjectName("muted")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel = QPushButton("Cancel")
+        go = QPushButton("Continue")
+        go.setObjectName("primary")
+        cancel.clicked.connect(dialog.reject)
+        go.clicked.connect(dialog.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(go)
+        layout.addLayout(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.status.showMessage("Import target selected: " + app_choice.currentText() + " — bridge integration is not installed yet")
 
     def open_containing_folder(self):
         if self.current_asset and self.current_asset.exists():
