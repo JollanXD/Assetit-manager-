@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
     QSplitter, QFrame, QScrollArea, QDialog, QFormLayout, QCheckBox, QComboBox,
-    QMessageBox, QToolButton, QMenu, QStatusBar, QSizePolicy, QSlider, QSpinBox
+    QMessageBox, QToolButton, QMenu, QStatusBar, QSizePolicy, QSlider, QSpinBox, QProgressBar
 )
 
 APP_NAME = "AssetIt"
