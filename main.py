@@ -679,11 +679,12 @@ class AssetItWindow(QMainWindow):
                 sum(p.suffix.lower() in PROJECT_EXTS for p in self.cards),
             ]
             category_labels = ["All Assets", "3D Models", "Textures & Normals", "HDRI Maps", "Scenes & Presets"]
-            category_glyphs = ["◇", "⬡", "▧", "☼", "▣"]
-            for index, (label, glyph, count) in enumerate(zip(category_labels, category_glyphs, counts)):
+            for index, (label, count) in enumerate(zip(category_labels, counts)):
                 item = self.category_list.item(index)
                 if item:
                     item.setText(f"{label}   {count}")
+            favorite_count = len(self.settings.get("favorites", []))
+            self.favorites_button.setText(f"Show Favorites Only   {favorite_count}")
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
             item = QListWidgetItem(self._svg_icon("star", "#19c5f5", 12), f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
