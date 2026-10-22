@@ -33,26 +33,62 @@ SETTINGS_FILE = APPDATA / "settings.json"
 PLUGIN_DIR = Path(sys.executable).resolve().parent / "Plugins" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent / "Plugins"
 
 
-def cached_preview(path: Path, size: int) -> QPixmap:
-    """Read a bounded-size thumbnail once and reuse it across filters/favorite changes."""
+def thumbnail_cache_path(path: Path, size: int) -> Path:
+    """Persistent thumbnail cache invalidated when source path, timestamp, size or thumb size changes."""
     try:
         stat = path.stat()
-        key = f"assetit:{path}:{stat.st_mtime_ns}:{stat.st_size}:{size}"
+        identity = f"{path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}|{size}"
     except OSError:
-        key = f"assetit:{path}:missing:{size}"
+        identity = f"{path}|missing|{size}"
+    key = hashlib.sha1(identity.encode("utf-8", errors="replace")).hexdigest()
+    return APPDATA / "cache" / "thumbnails" / f"{key}.png"
+
+
+def cached_preview(path: Path, size: int) -> QPixmap:
+    """Load an already-generated preview without decoding the original asset on the UI thread."""
+    cache_path = thumbnail_cache_path(path, size)
+    key = f"assetit:{cache_path}"
     cached = QPixmapCache.find(key)
     if cached is not None:
         return cached
-    reader = QImageReader(str(path))
-    reader.setAutoTransform(True)
-    original = reader.size()
-    if original.isValid():
-        reader.setScaledSize(original.scaled(QSize(max(32, size), max(32, size)), Qt.AspectRatioMode.KeepAspectRatio))
-    image = reader.read()
-    pix = QPixmap.fromImage(image) if not image.isNull() else QPixmap()
-    if not pix.isNull():
-        QPixmapCache.insert(key, pix)
-    return pix
+    if cache_path.is_file():
+        pix = QPixmap(str(cache_path))
+        if not pix.isNull():
+            QPixmapCache.insert(key, pix)
+            return pix
+    return QPixmap()
+
+
+class ThumbnailBatchWorker(QThread):
+    thumbnail_ready = Signal(str, object)
+
+    def __init__(self, paths, size, parent=None):
+        super().__init__(parent)
+        self.paths = list(paths)
+        self.size = max(32, int(size))
+
+    def run(self):
+        for path in self.paths:
+            try:
+                cache_path = thumbnail_cache_path(path, self.size)
+                image = QImageReader(str(cache_path)).read() if cache_path.is_file() else None
+                if image is None or image.isNull():
+                    reader = QImageReader(str(path))
+                    reader.setAutoTransform(True)
+                    original = reader.size()
+                    if original.isValid():
+                        reader.setScaledSize(original.scaled(QSize(self.size, self.size), Qt.AspectRatioMode.KeepAspectRatio))
+                    image = reader.read()
+                    if image.isNull():
+                        continue
+                    try:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        image.save(str(cache_path), "PNG")
+                    except OSError:
+                        pass
+                self.thumbnail_ready.emit(str(path), image)
+            except Exception:
+                continue
 
 
 def load_settings():
@@ -143,12 +179,13 @@ class AssetCard(QFrame):
         preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview.setMinimumWidth(120)
         preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.preview_label = preview
         if path.suffix.lower() in IMAGE_EXTS:
             pix = cached_preview(path, thumb_size)
             if not pix.isNull():
                 preview.setPixmap(pix)
             else:
-                preview.setText("Preview unavailable")
+                preview.setText("Loading thumbnail…")
         else:
             preview.setText(self._type_label(path))
         thumb_layout.addWidget(preview, 0, 0)
@@ -213,6 +250,12 @@ class AssetCard(QFrame):
         if star:
             star.setIcon(self._icon("star", "#ffbf3f" if is_favorite else "#8c9aaa", 16))
             star.setToolTip("Remove from favorites" if is_favorite else "Add to favorites")
+
+    def set_preview(self, image):
+        pix = QPixmap.fromImage(image) if image is not None else QPixmap()
+        if not pix.isNull():
+            self.preview_label.setPixmap(pix)
+            self.preview_label.setText("")
 
     def mousePressEvent(self, event):
         self.selected.emit(str(self.path))
@@ -300,6 +343,7 @@ class AssetItWindow(QMainWindow):
         self.current_asset = None
         self.cards = []
         self._scan_thread = None
+        self._thumbnail_workers = []
         self._selected_paths = set()
         self._render_generation = 0
         self._render_queue = []
@@ -421,13 +465,10 @@ class AssetItWindow(QMainWindow):
         side.addWidget(self.category_list)
         self.favorites_button = QToolButton()
         self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
-        self.favorites_button.setText("Show Favorites Only")
+        self.favorites_button.setText("Favorites Only: OFF")
         self.favorites_button.setCheckable(True)
-        self.favorites_button.toggled.connect(self._render_cards)
+        self.favorites_button.toggled.connect(self._favorites_filter_changed)
         side.addWidget(self.favorites_button)
-        self.favorites = QCheckBox("Show favorites only")
-        self.favorites.setText("Show Favorites Only")
-        side.addWidget(self.favorites)
         side.addWidget(self._section_label("TAGS"))
         self.tag_presets = QWidget()
         self.tag_presets_layout = QGridLayout(self.tag_presets)
@@ -546,8 +587,9 @@ class AssetItWindow(QMainWindow):
         self.info_preview = QLabel("Select an asset")
         self.info_preview.setObjectName("infoPreview")
         self.info_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.info_preview.setMinimumHeight(170)
-        self.info_preview.setMaximumHeight(250)
+        self.info_preview.setMinimumHeight(130)
+        self.info_preview.setMaximumHeight(180)
+        self.info_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         info_layout.addWidget(self.info_preview)
         self.info_name = QLabel("—")
         self.info_name.setObjectName("infoName")
@@ -558,9 +600,10 @@ class AssetItWindow(QMainWindow):
         self.info_path.hide()
         self.info_size = QLabel("SIZE   —")
         self.info_resolution = QLabel("RESOLUTION   —")
-        self.info_modified = QLabel("MODIFIED   —")
+        self.info_color_space = QLabel("COLOR SPACE   —")
+        self.info_modified = QLabel("DATE MODIFIED   —")
         self.info_format = QLabel("FORMAT   —")
-        for label in (self.info_type, self.info_size, self.info_resolution, self.info_format, self.info_modified):
+        for label in (self.info_type, self.info_size, self.info_resolution, self.info_color_space, self.info_format, self.info_modified):
             label.setObjectName("infoText")
             label.setWordWrap(True)
             info_layout.addWidget(label)
@@ -605,10 +648,6 @@ class AssetItWindow(QMainWindow):
         self.open_file_button.setEnabled(False)
         self.open_file_button.clicked.connect(self.open_in_explorer)
         info_layout.addWidget(self.open_file_button)
-        self.open_folder_button = QPushButton("Open Containing Folder")
-        self.open_folder_button.setEnabled(False)
-        self.open_folder_button.clicked.connect(self.open_containing_folder)
-        info_layout.addWidget(self.open_folder_button)
         self.export_button = QPushButton("Export As…")
         self.export_button.clicked.connect(self.export_selected)
         info_layout.addWidget(self.export_button)
@@ -692,7 +731,7 @@ class AssetItWindow(QMainWindow):
                 if item:
                     item.setText(f"{label}   {count}")
             favorite_count = len(self.settings.get("favorites", []))
-            self.favorites_button.setText(f"Show Favorites Only   {favorite_count}")
+            self.favorites_button.setText(("Favorites Only: ON" if self.favorites_button.isChecked() else "Favorites Only: OFF") + f"   ({favorite_count})")
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
             item = QListWidgetItem(self._svg_icon("star", "#19c5f5", 12), f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
@@ -977,7 +1016,7 @@ class AssetItWindow(QMainWindow):
         tag_map = self.settings.get("asset_tags", {})
         for path in self.cards:
             ext = path.suffix.lower()
-            if (self.favorites.isChecked() or self.favorites_button.isChecked()) and str(path) not in favorites:
+            if self.favorites_button.isChecked() and str(path) not in favorites:
                 continue
             path_tags = tag_map.get(str(path), [])
             searchable_tags = " ".join(path_tags).casefold()
@@ -1026,6 +1065,13 @@ class AssetItWindow(QMainWindow):
         self._render_thumb = self.settings.get("thumbnail_size", 150)
         self._render_favorites = favorites
         self.status.showMessage(f"Preparing {len(visible)} assets…")
+        image_paths = [p for p in visible if p.suffix.lower() in IMAGE_EXTS]
+        if image_paths:
+            worker = ThumbnailBatchWorker(image_paths, self._render_thumb, self)
+            worker.thumbnail_ready.connect(lambda path, image, g=generation: self._thumbnail_ready(path, image, g))
+            worker.finished.connect(lambda w=worker: self._thumbnail_worker_finished(w))
+            self._thumbnail_workers.append(worker)
+            worker.start()
         QTimer.singleShot(0, lambda: self._render_next_batch(generation))
 
     def _render_next_batch(self, generation):
@@ -1049,6 +1095,26 @@ class AssetItWindow(QMainWindow):
             QTimer.singleShot(0, lambda: self._render_next_batch(generation))
         else:
             self.status.showMessage(f"Ready — {len(self._render_queue)} assets")
+
+    def _thumbnail_ready(self, path_string, image, generation):
+        if generation != self._render_generation:
+            return
+        card = self._card_widgets.get(path_string)
+        if card:
+            card.set_preview(image)
+            cache_path = thumbnail_cache_path(Path(path_string), self._render_thumb)
+            pix = QPixmap.fromImage(image)
+            if not pix.isNull():
+                QPixmapCache.insert(f"assetit:{cache_path}", pix)
+
+    def _thumbnail_worker_finished(self, worker):
+        if worker in self._thumbnail_workers:
+            self._thumbnail_workers.remove(worker)
+        worker.deleteLater()
+
+    def _favorites_filter_changed(self, checked):
+        self.favorites_button.setText("Favorites Only: ON" if checked else "Favorites Only: OFF")
+        self._render_cards()
 
     def _toggle_favorite_path(self, path_string):
         favorites = set(self.settings.get("favorites", []))
@@ -1130,6 +1196,7 @@ class AssetItWindow(QMainWindow):
             self.info_modified.setText("DATE MODIFIED   —")
         self.info_format.setText("FORMAT   " + (path.suffix.upper().lstrip(".") or "Unknown") + " File")
         self.info_resolution.setText("RESOLUTION   —")
+        self.info_color_space.setText("COLOR SPACE   —")
         self._render_inspector_tags(path)
         self.info_preview.clear()
         if path.suffix.lower() in IMAGE_EXTS:
@@ -1137,6 +1204,13 @@ class AssetItWindow(QMainWindow):
             image_size = reader.size()
             if image_size.isValid():
                 self.info_resolution.setText(f"RESOLUTION   {image_size.width()} × {image_size.height()} px")
+            try:
+                from PIL import Image
+                with Image.open(path) as image_meta:
+                    profile = image_meta.info.get("icc_profile")
+                    self.info_color_space.setText("COLOR SPACE   Embedded ICC profile" if profile else "COLOR SPACE   Not specified")
+            except Exception:
+                self.info_color_space.setText("COLOR SPACE   Unknown")
             pix = cached_preview(path, 240)
             if not pix.isNull():
                 self.info_preview.setPixmap(pix)
@@ -1145,7 +1219,6 @@ class AssetItWindow(QMainWindow):
         else:
             self.info_preview.setText(path.suffix.upper() + "\n\nPreview not available yet")
         self.open_file_button.setEnabled(True)
-        self.open_folder_button.setEnabled(True)
 
     def _open_path(self, path):
         self.select_asset(path)
