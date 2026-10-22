@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer
-from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter
+from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter, QPixmapCache, QImageReader
 from PySide6.QtCore import QByteArray
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "AssetIt"
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.3.0"
 DEFAULT_TAGS = ["PBR", "Grid", "Sci-Fi", "Seamless", "NormalMap", "4K", "HardSurface", "Arasaka", "Metal", "Blueprint", "HDRI", "8K", "Outdoor"]
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
 HDRI_EXTS = {".exr", ".hdr", ".tx"}
@@ -31,6 +31,28 @@ ASSET_EXTS = IMAGE_EXTS | MODEL_EXTS | PROJECT_EXTS
 APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share"))) / "AssetIt"
 SETTINGS_FILE = APPDATA / "settings.json"
 PLUGIN_DIR = Path(sys.executable).resolve().parent / "Plugins" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent / "Plugins"
+
+
+def cached_preview(path: Path, size: int) -> QPixmap:
+    """Read a bounded-size thumbnail once and reuse it across filters/favorite changes."""
+    try:
+        stat = path.stat()
+        key = f"assetit:{path}:{stat.st_mtime_ns}:{stat.st_size}:{size}"
+    except OSError:
+        key = f"assetit:{path}:missing:{size}"
+    cached = QPixmapCache.find(key)
+    if cached is not None:
+        return cached
+    reader = QImageReader(str(path))
+    reader.setAutoTransform(True)
+    original = reader.size()
+    if original.isValid():
+        reader.setScaledSize(original.scaled(QSize(max(32, size), max(32, size)), Qt.AspectRatioMode.KeepAspectRatio))
+    image = reader.read()
+    pix = QPixmap.fromImage(image) if not image.isNull() else QPixmap()
+    if not pix.isNull():
+        QPixmapCache.insert(key, pix)
+    return pix
 
 
 def load_settings():
@@ -122,9 +144,9 @@ class AssetCard(QFrame):
         preview.setMinimumWidth(120)
         preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         if path.suffix.lower() in IMAGE_EXTS:
-            pix = QPixmap(str(path))
+            pix = cached_preview(path, thumb_size)
             if not pix.isNull():
-                preview.setPixmap(pix.scaled(QSize(thumb_size, thumb_size), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                preview.setPixmap(pix)
             else:
                 preview.setText("Preview unavailable")
         else:
@@ -147,8 +169,9 @@ class AssetCard(QFrame):
 
         try:
             if path.suffix.lower() in IMAGE_EXTS:
-                image = QPixmap(str(path))
-                detail = QLabel(f"{image.width()}" if not image.isNull() else "")
+                reader = QImageReader(str(path))
+                image_size = reader.size()
+                detail = QLabel(f"{image_size.width()} × {image_size.height()}" if image_size.isValid() else "")
             else:
                 detail = QLabel("")
         except OSError:
@@ -184,6 +207,12 @@ class AssetCard(QFrame):
     @staticmethod
     def _type_label(path):
         return path.suffix.lower().lstrip(".").upper() or "FILE"
+
+    def set_favorite(self, is_favorite):
+        star = self.findChild(QToolButton, "cardFavorite")
+        if star:
+            star.setIcon(self._icon("star", "#ffbf3f" if is_favorite else "#8c9aaa", 16))
+            star.setToolTip("Remove from favorites" if is_favorite else "Add to favorites")
 
     def mousePressEvent(self, event):
         self.selected.emit(str(self.path))
@@ -277,6 +306,7 @@ class AssetItWindow(QMainWindow):
         self._render_cols = 1
         self._render_thumb = 150
         self._render_favorites = set()
+        self._card_widgets = {}
         self.setWindowTitle(f"AssetIt {APP_VERSION}")
         self.resize(1380, 850)
         self.setMinimumSize(980, 620)
@@ -956,6 +986,7 @@ class AssetItWindow(QMainWindow):
             return
 
         self._render_queue = visible
+        self._card_widgets = {}
         self._render_index = 0
         self._render_cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
         self._render_thumb = self.settings.get("thumbnail_size", 150)
@@ -977,6 +1008,7 @@ class AssetItWindow(QMainWindow):
             card.favorite_toggled.connect(self._toggle_favorite_path)
             card.context_requested.connect(self._asset_context_menu)
             self.grid.addWidget(card, index // self._render_cols, index % self._render_cols)
+            self._card_widgets[str(path)] = card
         self._render_index = end
         if end < len(self._render_queue):
             self.status.showMessage(f"Loading thumbnails… {end} / {len(self._render_queue)}")
@@ -992,7 +1024,12 @@ class AssetItWindow(QMainWindow):
             favorites.add(path_string)
         self.settings["favorites"] = sorted(favorites)
         save_settings(self.settings)
-        self._render_cards()
+        card = self._card_widgets.get(path_string)
+        if card:
+            card.set_favorite(path_string in favorites)
+        if self.favorites.isChecked() or self.favorites_button.isChecked():
+            self._render_cards()
+        self._refresh_sidebar_metadata()
 
     @staticmethod
     def _resolution_sort_key(path):
