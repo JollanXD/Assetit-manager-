@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "AssetIt"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 DEFAULT_TAGS = ["PBR", "Grid", "Sci-Fi", "Seamless", "NormalMap", "4K", "HardSurface", "Arasaka", "Metal", "Blueprint", "HDRI", "8K", "Outdoor"]
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".exr", ".hdr"}
 HDRI_EXTS = {".exr", ".hdr", ".tx"}
@@ -362,7 +362,7 @@ class AssetItWindow(QMainWindow):
         logo = QLabel()
         logo.setObjectName("logo")
         logo.setFixedSize(30, 30)
-        logo.setPixmap(self._svg_icon("cube", "#14bce9", 26).pixmap(26, 26))
+        logo.setPixmap(self._make_icon().pixmap(30, 30))
         title = QLabel("AssetIt")
         title.setObjectName("brand")
         version = QLabel(APP_VERSION)
@@ -478,7 +478,7 @@ class AssetItWindow(QMainWindow):
         self.search.setMinimumWidth(150)
         self.search.setMaximumWidth(380)
         toolbar.addWidget(self.search, 1)
-        toolbar.addWidget(self.filter_group)
+        self.filter_group.hide()
         self.thumb_size = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size.setRange(90, 240)
         self.thumb_size.setSingleStep(10)
