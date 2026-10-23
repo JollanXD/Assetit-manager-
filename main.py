@@ -690,6 +690,9 @@ class AssetItWindow(QMainWindow):
         self.info_name.setObjectName("infoName")
         self.info_name.setWordWrap(True)
         info_layout.addWidget(self.info_name)
+        self.info_category = QLabel("Select an asset")
+        self.info_category.setObjectName("infoCategory")
+        info_layout.addWidget(self.info_category)
         self.info_type = QLabel()
         self.info_path = QLabel("PATH   —")
         self.info_path.hide()
@@ -1308,6 +1311,18 @@ class AssetItWindow(QMainWindow):
         path = Path(path_string)
         self.current_asset = path
         self.info_name.setText(path.name)
+        ext = path.suffix.lower()
+        if ext in MODEL_EXTS:
+            category_label = "3D Models"
+        elif ext in HDRI_EXTS:
+            category_label = "HDRI Maps"
+        elif ext in IMAGE_EXTS:
+            category_label = "Textures & Normals"
+        elif ext in PROJECT_EXTS:
+            category_label = "Scenes & Presets"
+        else:
+            category_label = "Asset"
+        self.info_category.setText(category_label)
         self._set_info_value(self.info_type, path.suffix[1:].upper() if path.suffix else "FILE")
         self.info_path.setText("PATH   " + str(path))
         if hasattr(self, "info_path_edit"):
@@ -1498,7 +1513,8 @@ QFrame#assetCard:hover { background: #1a1b22; border: 1px solid #3b465b; }
 QLabel#assetName { color: #e1e5ed; font-size: 9pt; }
 QLabel#assetSize { color: #899bb4; font-size: 8pt; }
 QLabel#infoPreview { background: #121316; border: 1px solid #2c2f3b; border-radius: 7px; color: #8e9aa5; }
-QLabel#infoName { color: #f0f3f8; font-size: 11pt; font-weight: 600; padding: 3px 0; }
+QLabel#infoName { color: #f0f3f8; font-size: 11pt; font-weight: 600; padding: 3px 0 0 0; }
+QLabel#infoCategory { color: #00c3ff; background: #101b28; border: 1px solid #16425b; border-radius: 4px; padding: 3px 7px; font-size: 8pt; }
 QLabel#infoText { color: #899bb4; font-size: 8pt; padding: 4px 0; }
 QLineEdit#infoPathEdit { background: #121316; border: 1px solid #2c2f3b; border-radius: 5px; color: #aebed7; padding: 7px 8px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 8pt; }
 QLineEdit#infoPathEdit:hover { border-color: #3b4d6a; }
