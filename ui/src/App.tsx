@@ -54,6 +54,7 @@ export default function App() {
     if (!window.QWebChannel || !window.qt?.webChannelTransport) return;
     new window.QWebChannel(window.qt.webChannelTransport, (channel: any) => {
       bridge.current = channel.objects.assetItBridge;
+      window.assetItBridge = bridge.current;
       refreshLocalData();
     });
   }, [refreshLocalData]);
