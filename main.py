@@ -8,7 +8,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer, QRect, QPoint
+from PySide6.QtWidgets import QLayout
 from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter, QPixmapCache, QImageReader
 from PySide6.QtCore import QByteArray
 from PySide6.QtSvg import QSvgRenderer
@@ -337,6 +338,69 @@ class SettingsDialog(QDialog):
         super().accept()
 
 
+class FlowLayout(QLayout):
+    """Compact tag layout that wraps chips to the next line when space runs out."""
+    def __init__(self, parent=None, margin=0, h_spacing=5, v_spacing=5):
+        super().__init__(parent)
+        self._items = []
+        self._h_spacing = h_spacing
+        self._v_spacing = v_spacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations(Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        left, top, right, bottom = self.getContentsMargins()
+        return size + QSize(left + right, top + bottom)
+
+    def _do_layout(self, rect, test_only):
+        left, top, right, bottom = self.getContentsMargins()
+        area = rect.adjusted(left, top, -right, -bottom)
+        x, y, line_height = area.x(), area.y(), 0
+        for item in self._items:
+            widget_size = item.sizeHint()
+            next_x = x + widget_size.width() + self._h_spacing
+            if line_height and next_x - self._h_spacing > area.right() + 1:
+                x = area.x()
+                y += line_height + self._v_spacing
+                next_x = x + widget_size.width() + self._h_spacing
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), widget_size))
+            x = next_x
+            line_height = max(line_height, widget_size.height())
+        return y + line_height - rect.y() + bottom
+
+
 class AssetItWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -631,9 +695,7 @@ class AssetItWindow(QMainWindow):
         tags_heading.setObjectName("sectionLabel")
         info_layout.addWidget(tags_heading)
         self.info_tags_container = QWidget()
-        self.info_tags_layout = QGridLayout(self.info_tags_container)
-        self.info_tags_layout.setContentsMargins(0, 0, 0, 0)
-        self.info_tags_layout.setSpacing(4)
+        self.info_tags_layout = FlowLayout(self.info_tags_container, margin=0, h_spacing=5, v_spacing=5)
         info_layout.addWidget(self.info_tags_container)
         tag_row = QHBoxLayout()
         tag_row.setSpacing(6)
@@ -779,7 +841,7 @@ class AssetItWindow(QMainWindow):
             chip.setText("#" + tag + "  ×")
             chip.setToolTip("Click to remove this tag")
             chip.clicked.connect(lambda checked=False, value=tag: self._remove_tag(value))
-            self.info_tags_layout.addWidget(chip, index // 2, index % 2)
+            self.info_tags_layout.addWidget(chip)
 
     def _remove_tag(self, tag):
         if not self.current_asset:
