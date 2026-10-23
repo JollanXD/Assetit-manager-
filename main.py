@@ -211,21 +211,36 @@ class AssetCard(QFrame):
             if path.suffix.lower() in IMAGE_EXTS:
                 reader = QImageReader(str(path))
                 image_size = reader.size()
-                detail = QLabel(f"{image_size.width()} × {image_size.height()}" if image_size.isValid() else "")
+                resolution_text = f"{image_size.width()} × {image_size.height()}" if image_size.isValid() else ""
             else:
-                detail = QLabel("")
+                resolution_text = ""
         except OSError:
-            detail = QLabel("")
-        detail.setObjectName("resolutionBadge")
-        thumb_layout.addWidget(detail, 0, 0, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+            resolution_text = ""
 
         name = QLabel(path.name)
         name.setObjectName("assetName")
         name.setWordWrap(True)
         name.setAlignment(Qt.AlignmentFlag.AlignLeft)
         name.setToolTip(str(path))
+        meta_row = QHBoxLayout()
+        meta_row.setContentsMargins(1, 0, 1, 0)
+        meta_row.setSpacing(4)
+        try:
+            byte_size = path.stat().st_size
+            size_text = f"{byte_size / 1024:.1f} KB" if byte_size < 1024**2 else f"{byte_size / 1024**2:.1f} MB"
+        except OSError:
+            size_text = "—"
+        size_label = QLabel(size_text)
+        size_label.setObjectName("assetSize")
+        meta_row.addWidget(size_label)
+        meta_row.addStretch(1)
+        if resolution_text:
+            detail = QLabel(resolution_text)
+            detail.setObjectName("resolutionBadge")
+            meta_row.addWidget(detail)
         layout.addWidget(thumb)
         layout.addWidget(name)
+        layout.addLayout(meta_row)
         self.setToolTip(str(path))
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(lambda pos: self.context_requested.emit(str(self.path), self.mapToGlobal(pos)))
@@ -500,8 +515,6 @@ class AssetItWindow(QMainWindow):
         self.settings_button.setToolTip("Settings")
         self.settings_button.clicked.connect(self.open_settings)
         header.addWidget(self.settings_button)
-        root.addLayout(header)
-
         root.addLayout(header)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("mainSplitter")
