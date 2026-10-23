@@ -16,6 +16,7 @@ interface InspectorProps {
   onToggleFavorite: (asset: Asset) => void;
   onAddTagToAsset: (asset: Asset, tag: string) => void;
   onRemoveTagFromAsset: (asset: Asset, tag: string) => void;
+  availableTags?: string[];
 }
 
 const typeIcons = { Kit: Layers, Model: Package, Material: Palette };
@@ -47,7 +48,7 @@ function DetailRow({ icon: Icon, label, value }: { icon: React.ElementType; labe
   );
 }
 
-export default function Inspector({ width, asset, onClose, onImport, onToggleFavorite, onAddTagToAsset, onRemoveTagFromAsset }: InspectorProps) {
+export default function Inspector({ width, asset, onClose, onImport, onToggleFavorite, onAddTagToAsset, onRemoveTagFromAsset, availableTags = [] }: InspectorProps) {
   const [selectedVersion, setSelectedVersion] = useState('Blender 4.2');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [tagInput, setTagInput] = useState('');
@@ -66,10 +67,22 @@ export default function Inspector({ width, asset, onClose, onImport, onToggleFav
 
   const handleCopyPath = async () => {
     try {
-      await navigator.clipboard.writeText(asset.filePath);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(asset.filePath);
+      } else {
+        const area = document.createElement('textarea');
+        area.value = asset.filePath;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        const copied = document.execCommand('copy');
+        area.remove();
+        if (!copied) throw new Error('Clipboard unavailable');
+      }
       setPathCopied(true);
       setTimeout(() => setPathCopied(false), 1500);
-    } catch { /* ignore */ }
+    } catch { setPathCopied(false); }
   };
 
   const handleAddTag = () => {
@@ -93,7 +106,7 @@ export default function Inspector({ width, asset, onClose, onImport, onToggleFav
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         {/* Preview */}
         <div className="relative aspect-[4/3] overflow-hidden bg-surface-200">
-          <img src={asset.preview} alt={asset.name} className="h-full w-full object-cover" />
+          {(asset.preview || asset.thumbnail) ? <img src={asset.preview || asset.thumbnail} alt={asset.name} className="h-full w-full object-contain" /> : <div className="flex h-full w-full items-center justify-center text-slate-600"><TypeIcon className="h-12 w-12" /><span className="absolute bottom-10 text-xs">{asset.fileFormat.toUpperCase()}</span></div>}
           <button onClick={() => onToggleFavorite(asset)} className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center bg-surface-0/70 backdrop-blur-sm transition-colors hover:bg-surface-0/90">
             <Star className={`h-3.5 w-3.5 ${asset.favorite ? 'fill-amber-400 text-amber-400' : 'text-slate-400'}`} />
           </button>
@@ -178,6 +191,11 @@ export default function Inspector({ width, asset, onClose, onImport, onToggleFav
               <span className="text-[10px] text-slate-600">No tags assigned</span>
             )}
           </div>
+          {availableTags.filter((tag) => !asset.tags.includes(tag)).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {availableTags.filter((tag) => !asset.tags.includes(tag)).map((tag) => <button key={tag} onClick={() => onAddTagToAsset(asset, tag)} className="border border-surface-400 px-1.5 py-0.5 text-[10px] text-slate-400 hover:border-accent hover:text-accent">+ {tag}</button>)}
+            </div>
+          )}
           {tagInputOpen ? (
             <div className="mt-1.5 flex items-center gap-1">
               <input type="text" value={tagInput} onChange={(e) => setTagInput(e.target.value)}
