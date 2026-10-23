@@ -22,6 +22,12 @@ jobs:
           python-version: '3.12'
           cache: pip
 
+      - name: Build replaceable React UI
+        working-directory: ui
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -49,6 +55,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/AssetIt/Plugins | Out-Null
           Copy-Item Plugins/README.md dist/AssetIt/Plugins/README.md
           Copy-Item README.md dist/AssetIt/README.txt
+          New-Item -ItemType Directory -Force -Path dist/AssetIt/ui | Out-Null
+          Copy-Item ui/dist/* dist/AssetIt/ui/ -Recurse -Force
           Compress-Archive -Path dist/AssetIt/* -DestinationPath dist/AssetIt-Portable-Windows-x64.zip -Force
 
       - name: Upload ready-to-extract portable folder
