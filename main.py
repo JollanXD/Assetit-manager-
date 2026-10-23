@@ -499,10 +499,6 @@ class AssetItWindow(QMainWindow):
         about_action = QAction("About Asset It…", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
-        help_menu.addSeparator()
-        github_action = QAction("Asset It on GitHub", self)
-        github_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/JollanXD/Assetit-manager-")))
-        help_menu.addAction(github_action)
 
     def show_about(self):
         dialog = QDialog(self)
@@ -614,10 +610,29 @@ class AssetItWindow(QMainWindow):
         self.category_list.setUniformItemSizes(True)
         self.category_list.setSpacing(2)
         for label, icon_name in [("All Assets", "grid"), ("3D Models", "cube"), ("Textures & Normals", "image"), ("HDRI Maps", "sun"), ("Scenes & Presets", "folder")]:
-            item = QListWidgetItem(self._svg_icon(icon_name, "#19c5f5", 17), label)
+            item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, label)
             item.setSizeHint(QSize(220, 32))
             self.category_list.addItem(item)
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(8, 0, 8, 0)
+            row_layout.setSpacing(9)
+            icon_label = QLabel()
+            icon_label.setPixmap(self._svg_icon(icon_name, "#9fbbe8", 17).pixmap(17, 17))
+            icon_label.setFixedSize(18, 18)
+            row_layout.addWidget(icon_label)
+            category_label = QLabel(label)
+            category_label.setObjectName("categoryRowLabel")
+            row_layout.addWidget(category_label, 1)
+            count_label = QLabel("0")
+            count_label.setObjectName("categoryRowCount")
+            count_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row_layout.addWidget(count_label)
+            self.category_list.setItemWidget(item, row_widget)
+            if not hasattr(self, "_category_count_labels"):
+                self._category_count_labels = []
+            self._category_count_labels.append(count_label)
         self.category_list.setCurrentRow(0)
         self.category_list.currentRowChanged.connect(self._category_changed)
         self.category_list.setFixedHeight(5 * 34 + 4)
@@ -920,11 +935,9 @@ class AssetItWindow(QMainWindow):
                 sum(p.suffix.lower() in HDRI_EXTS for p in self.cards),
                 sum(p.suffix.lower() in PROJECT_EXTS for p in self.cards),
             ]
-            category_labels = ["All Assets", "3D Models", "Textures & Normals", "HDRI Maps", "Scenes & Presets"]
-            for index, (label, count) in enumerate(zip(category_labels, counts)):
-                item = self.category_list.item(index)
-                if item:
-                    item.setText(f"{label}   {count}")
+            for index, count in enumerate(counts):
+                if index < len(getattr(self, "_category_count_labels", [])):
+                    self._category_count_labels[index].setText(str(count))
             favorite_count = len(self.settings.get("favorites", []))
             self.favorites_count.setText(str(favorite_count))
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
@@ -1214,7 +1227,7 @@ class AssetItWindow(QMainWindow):
         tag_map = self.settings.get("asset_tags", {})
         for path in self.cards:
             ext = path.suffix.lower()
-            if self.favorites_button.isChecked() and str(path) not in favorites:
+            if self.favorites_toggle.isChecked() and str(path) not in favorites:
                 continue
             path_tags = tag_map.get(str(path), [])
             searchable_tags = " ".join(path_tags).casefold()
@@ -1324,7 +1337,7 @@ class AssetItWindow(QMainWindow):
         card = self._card_widgets.get(path_string)
         if card:
             card.set_favorite(path_string in favorites)
-        if self.favorites_button.isChecked():
+        if self.favorites_toggle.isChecked():
             self._render_cards()
         self._refresh_sidebar_metadata()
 
@@ -1567,8 +1580,10 @@ QCheckBox#favoritesToggle::indicator:checked { background: #00a3ff; border: 1px 
 QListWidget { background: transparent; border: none; outline: none; }
 QListWidget::item { padding: 7px 8px; border-radius: 5px; color: #c4c9d5; }
 QListWidget::item:selected { background: #323645; color: #00d2ff; }
-QListWidget#categoryList::item { padding: 5px 8px; min-height: 30px; }
+QListWidget#categoryList::item { padding: 0; min-height: 30px; }
 QListWidget#categoryList::item:selected { background: #323645; color: #e1e5ed; }
+QLabel#categoryRowLabel { color: #c4c9d5; background: transparent; }
+QLabel#categoryRowCount { color: #9fbbe8; background: transparent; font-size: 8pt; }
 QLabel#favoriteStar { color: #b8c7d5; }
 QLabel#favoritesTitle { color: #d8dbe4; }
 QLabel#favoritesCount { color: #9fbbe8; }
