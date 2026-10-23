@@ -554,10 +554,15 @@ class AssetItWindow(QMainWindow):
         side.addWidget(self.category_list)
         self.favorites_button = QToolButton()
         self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
-        self.favorites_button.setText("Favorites Only: OFF")
+        self.favorites_button.setText("Favorites")
         self.favorites_button.setCheckable(True)
+        self.favorites_button.setObjectName("favoritesButton")
         self.favorites_button.toggled.connect(self._favorites_filter_changed)
         side.addWidget(self.favorites_button)
+        self.favorites_toggle = QCheckBox("Show Favorites Only")
+        self.favorites_toggle.setObjectName("favoritesToggle")
+        self.favorites_toggle.toggled.connect(self._favorites_filter_changed)
+        side.addWidget(self.favorites_toggle)
         side.addWidget(self._section_label("TAGS"))
         self.tag_presets = QWidget()
         self.tag_presets_layout = QGridLayout(self.tag_presets)
@@ -677,8 +682,8 @@ class AssetItWindow(QMainWindow):
         self.info_preview = QLabel("Select an asset")
         self.info_preview.setObjectName("infoPreview")
         self.info_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.info_preview.setMinimumHeight(130)
-        self.info_preview.setMaximumHeight(180)
+        self.info_preview.setMinimumHeight(190)
+        self.info_preview.setMaximumHeight(230)
         self.info_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         info_layout.addWidget(self.info_preview)
         self.info_name = QLabel("—")
@@ -698,11 +703,17 @@ class AssetItWindow(QMainWindow):
             self.info_resolution: "RESOLUTION", self.info_color_space: "COLOR SPACE",
             self.info_format: "FORMAT", self.info_modified: "DATE MODIFIED"
         }
+        metadata_panel = QFrame()
+        metadata_panel.setObjectName("metadataPanel")
+        metadata_layout = QVBoxLayout(metadata_panel)
+        metadata_layout.setContentsMargins(10, 8, 10, 8)
+        metadata_layout.setSpacing(5)
         for label in self._info_row_labels:
             label.setObjectName("infoText")
             label.setWordWrap(True)
             label.setTextFormat(Qt.TextFormat.RichText)
-            info_layout.addWidget(label)
+            metadata_layout.addWidget(label)
+        info_layout.addWidget(metadata_panel)
         path_heading = QLabel("FILE PATH")
         path_heading.setObjectName("sectionLabel")
         info_layout.addWidget(path_heading)
@@ -827,7 +838,7 @@ class AssetItWindow(QMainWindow):
                 if item:
                     item.setText(f"{label}   {count}")
             favorite_count = len(self.settings.get("favorites", []))
-            self.favorites_button.setText(("Favorites Only: ON" if self.favorites_button.isChecked() else "Favorites Only: OFF") + f"   ({favorite_count})")
+            self.favorites_button.setText(f"Favorites   {favorite_count}")
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
             item = QListWidgetItem(self._svg_icon("star", "#19c5f5", 12), f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
@@ -1212,7 +1223,14 @@ class AssetItWindow(QMainWindow):
         worker.deleteLater()
 
     def _favorites_filter_changed(self, checked):
-        self.favorites_button.setText("Favorites Only: ON" if checked else "Favorites Only: OFF")
+        if hasattr(self, "favorites_toggle"):
+            self.favorites_toggle.blockSignals(True)
+            self.favorites_toggle.setChecked(checked)
+            self.favorites_toggle.blockSignals(False)
+        if hasattr(self, "favorites_button"):
+            self.favorites_button.blockSignals(True)
+            self.favorites_button.setChecked(checked)
+            self.favorites_button.blockSignals(False)
         self._render_cards()
 
     def _toggle_favorite_path(self, path_string):
@@ -1448,6 +1466,12 @@ QPushButton#primary { background: #0082d9; border: 1px solid #0082d9; color: #ff
 QPushButton#primary:hover { background: #00a3ff; }
 QFrame#sidebar { background: #1a1b22; border-right: 1px solid #2c2f3b; border-radius: 0; }
 QFrame#infoPanel { background: #1a1b22; border-left: 1px solid #2c2f3b; border-radius: 0; }
+QFrame#metadataPanel { background: #121316; border: 1px solid #2c2f3b; border-radius: 7px; }
+QToolButton#favoritesButton { text-align: left; background: transparent; border: none; padding: 8px; color: #c4c9d5; }
+QToolButton#favoritesButton:checked { background: #323645; color: #e1e5ed; }
+QCheckBox#favoritesToggle { color: #8993a7; padding: 5px 8px; }
+QCheckBox#favoritesToggle::indicator { width: 28px; height: 16px; border-radius: 8px; background: #2c2f3b; }
+QCheckBox#favoritesToggle::indicator:checked { background: #00a3ff; border: 1px solid #00d2ff; }
 QListWidget { background: transparent; border: none; outline: none; }
 QListWidget::item { padding: 7px 8px; border-radius: 5px; color: #c4c9d5; }
 QListWidget::item:selected { background: #323645; color: #00d2ff; }
