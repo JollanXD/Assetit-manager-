@@ -782,8 +782,8 @@ class AssetItWindow(QMainWindow):
         self.info_preview = QLabel("Select an asset")
         self.info_preview.setObjectName("infoPreview")
         self.info_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.info_preview.setMinimumHeight(190)
-        self.info_preview.setMaximumHeight(230)
+        self.info_preview.setMinimumHeight(165)
+        self.info_preview.setMaximumHeight(195)
         self.info_preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         info_layout.addWidget(self.info_preview)
         self.info_name = QLabel("—")
@@ -811,11 +811,25 @@ class AssetItWindow(QMainWindow):
         metadata_layout = QVBoxLayout(metadata_panel)
         metadata_layout.setContentsMargins(10, 8, 10, 8)
         metadata_layout.setSpacing(5)
-        for label in self._info_row_labels:
-            label.setObjectName("infoText")
-            label.setWordWrap(True)
-            label.setTextFormat(Qt.TextFormat.RichText)
-            metadata_layout.addWidget(label)
+        self._info_value_labels = {}
+        for label, heading in self._info_row_labels.items():
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
+            key_label = QLabel(heading)
+            key_label.setObjectName("infoKey")
+            key_label.setMinimumWidth(88)
+            value_label = label
+            value_label.setObjectName("infoValue")
+            value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            value_label.setWordWrap(False)
+            value_label.setMinimumHeight(22)
+            value_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            row_layout.addWidget(key_label)
+            row_layout.addWidget(value_label, 1)
+            metadata_layout.addWidget(row)
+            self._info_value_labels[value_label] = heading
         info_layout.addWidget(metadata_panel)
         path_heading = QLabel("FILE PATH")
         path_heading.setObjectName("sectionLabel")
@@ -1388,14 +1402,7 @@ class AssetItWindow(QMainWindow):
         self.count_label.setText("0 assets")
 
     def _set_info_value(self, label, value):
-        import html
-        heading = self._info_row_labels.get(label, "")
-        label.setText(
-            f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
-            f'<td style="color:#77869e; padding:2px 6px 2px 0;">{html.escape(heading)}</td>'
-            f'<td align="right" style="color:#e1e8f4; font-weight:600; padding:2px 0 2px 6px;">{html.escape(str(value))}</td>'
-            f'</tr></table>'
-        )
+        label.setText(str(value))
 
     def select_asset(self, path_string):
         path = Path(path_string)
@@ -1612,7 +1619,8 @@ QLabel#assetSize { color: #899bb4; font-size: 8pt; }
 QLabel#infoPreview { background: #121316; border: 1px solid #2c2f3b; border-radius: 7px; color: #8e9aa5; }
 QLabel#infoName { color: #f0f3f8; font-size: 11pt; font-weight: 600; padding: 3px 0 0 0; }
 QLabel#infoCategory { color: #00c3ff; background: #101b28; border: 1px solid #16425b; border-radius: 4px; padding: 3px 7px; font-size: 8pt; }
-QLabel#infoText { color: #899bb4; font-size: 8pt; padding: 0; min-height: 22px; }
+QLabel#infoKey { color: #77869e; font-size: 8pt; }
+QLabel#infoValue { color: #e1e8f4; font-size: 8pt; font-weight: 600; }
 QLineEdit#infoPathEdit { background: #121316; border: 1px solid #2c2f3b; border-radius: 5px; color: #aebed7; padding: 7px 8px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 8pt; }
 QLineEdit#infoPathEdit:hover { border-color: #3b4d6a; }
 QPushButton:checked { background: #323645; border-color: #00a3ff; color: #00d2ff; }
