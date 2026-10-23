@@ -2,7 +2,7 @@ name: Build portable Windows app
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
     tags: ['v*']
   workflow_dispatch:
 
@@ -29,7 +29,10 @@ jobs:
           pip install pyinstaller
 
       - name: Validate Python syntax
-        run: python -m compileall -q main.py assets/make_icon.py
+        run: python -m compileall -q main.py assets/make_icon.py assetit_core
+
+      - name: Test local core
+        run: python -m unittest discover -s tests -v
 
       - name: Generate application icon
         run: python assets/make_icon.py
