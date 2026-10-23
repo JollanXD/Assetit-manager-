@@ -597,32 +597,36 @@ class AssetItWindow(QMainWindow):
         self.info_name.setObjectName("infoName")
         self.info_name.setWordWrap(True)
         info_layout.addWidget(self.info_name)
-        self.info_type = QLabel("TYPE   —")
+        self.info_type = QLabel()
         self.info_path = QLabel("PATH   —")
         self.info_path.hide()
-        self.info_size = QLabel("SIZE   —")
-        self.info_resolution = QLabel("RESOLUTION   —")
-        self.info_color_space = QLabel("COLOR SPACE   —")
-        self.info_modified = QLabel("DATE MODIFIED   —")
-        self.info_format = QLabel("FORMAT   —")
-        for label in (self.info_type, self.info_size, self.info_resolution, self.info_color_space, self.info_format, self.info_modified):
+        self.info_size = QLabel()
+        self.info_resolution = QLabel()
+        self.info_color_space = QLabel()
+        self.info_modified = QLabel()
+        self.info_format = QLabel()
+        self._info_row_labels = {
+            self.info_type: "TYPE", self.info_size: "FILE SIZE",
+            self.info_resolution: "RESOLUTION", self.info_color_space: "COLOR SPACE",
+            self.info_format: "FORMAT", self.info_modified: "DATE MODIFIED"
+        }
+        for label in self._info_row_labels:
             label.setObjectName("infoText")
             label.setWordWrap(True)
+            label.setTextFormat(Qt.TextFormat.RichText)
             info_layout.addWidget(label)
         path_heading = QLabel("FILE PATH")
         path_heading.setObjectName("sectionLabel")
         info_layout.addWidget(path_heading)
-        path_row = QHBoxLayout()
         self.info_path_edit = QLineEdit()
+        self.info_path_edit.setObjectName("infoPathEdit")
         self.info_path_edit.setReadOnly(True)
         self.info_path_edit.setPlaceholderText("Select an asset")
-        copy_path = QToolButton()
-        copy_path.setText("Copy")
-        copy_path.setToolTip("Copy full path")
-        copy_path.clicked.connect(lambda: QApplication.clipboard().setText(self.info_path_edit.text()))
-        path_row.addWidget(self.info_path_edit, 1)
-        path_row.addWidget(copy_path)
-        info_layout.addLayout(path_row)
+        self.info_path_edit.setToolTip("Click the copy icon to copy the full path")
+        copy_action = self.info_path_edit.addAction(self._svg_icon("copy", "#899bb4", 15), QLineEdit.ActionPosition.TrailingPosition)
+        copy_action.setToolTip("Copy full path")
+        copy_action.triggered.connect(lambda: QApplication.clipboard().setText(self.info_path_edit.text()))
+        info_layout.addWidget(self.info_path_edit)
         tags_heading = QLabel("ASSIGNED TAGS")
         tags_heading.setObjectName("sectionLabel")
         info_layout.addWidget(tags_heading)
@@ -632,8 +636,9 @@ class AssetItWindow(QMainWindow):
         self.info_tags_layout.setSpacing(4)
         info_layout.addWidget(self.info_tags_container)
         tag_row = QHBoxLayout()
+        tag_row.setSpacing(6)
         self.tag_input = QLineEdit()
-        self.tag_input.setPlaceholderText("Add or create tag…")
+        self.tag_input.setPlaceholderText("Add new tag…")
         self.tag_input.returnPressed.connect(self._add_tag)
         add_tag = QPushButton("Add")
         add_tag.clicked.connect(self._add_tag)
@@ -646,13 +651,16 @@ class AssetItWindow(QMainWindow):
         self.import_button.setObjectName("primary")
         self.import_button.clicked.connect(self._import_to)
         info_layout.addWidget(self.import_button)
+        action_row = QHBoxLayout()
+        action_row.setSpacing(6)
         self.open_file_button = QPushButton("Explorer")
         self.open_file_button.setEnabled(False)
         self.open_file_button.clicked.connect(self.open_in_explorer)
-        info_layout.addWidget(self.open_file_button)
         self.export_button = QPushButton("Export As…")
         self.export_button.clicked.connect(self.export_selected)
-        info_layout.addWidget(self.export_button)
+        action_row.addWidget(self.open_file_button, 1)
+        action_row.addWidget(self.export_button, 1)
+        info_layout.addLayout(action_row)
         splitter.addWidget(info)
         splitter.setSizes([220, 850, 270])
         self.sidebar_widget = sidebar
@@ -1182,40 +1190,50 @@ class AssetItWindow(QMainWindow):
         self.grid.addWidget(label, 0, 0)
         self.count_label.setText("0 assets")
 
+    def _set_info_value(self, label, value):
+        import html
+        heading = self._info_row_labels.get(label, "")
+        label.setText(
+            f'<table width="100%" cellspacing="0" cellpadding="0"><tr>'
+            f'<td style="color:#77869e; padding:2px 6px 2px 0;">{html.escape(heading)}</td>'
+            f'<td align="right" style="color:#e1e8f4; font-weight:600; padding:2px 0 2px 6px;">{html.escape(str(value))}</td>'
+            f'</tr></table>'
+        )
+
     def select_asset(self, path_string):
         path = Path(path_string)
         self.current_asset = path
         self.info_name.setText(path.name)
-        self.info_type.setText("TYPE   " + (path.suffix[1:].upper() if path.suffix else "FILE"))
+        self._set_info_value(self.info_type, path.suffix[1:].upper() if path.suffix else "FILE")
         self.info_path.setText("PATH   " + str(path))
         if hasattr(self, "info_path_edit"):
             self.info_path_edit.setText(str(path))
         try:
             size = path.stat().st_size
-            self.info_size.setText(f"FILE SIZE   {size / 1024:.1f} KB" if size < 1024**2 else f"FILE SIZE   {size / 1024**2:.2f} MB")
+            self._set_info_value(self.info_size, f"{size / 1024:.1f} KB" if size < 1024**2 else f"{size / 1024**2:.2f} MB")
         except OSError:
-            self.info_size.setText("SIZE   unavailable")
+            self._set_info_value(self.info_size, "unavailable")
         try:
-            self.info_modified.setText("DATE MODIFIED   " + datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"))
+            self._set_info_value(self.info_modified, datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d"))
         except OSError:
-            self.info_modified.setText("DATE MODIFIED   —")
-        self.info_format.setText("FORMAT   " + (path.suffix.upper().lstrip(".") or "Unknown") + " File")
-        self.info_resolution.setText("RESOLUTION   —")
-        self.info_color_space.setText("COLOR SPACE   —")
+            self._set_info_value(self.info_modified, "—")
+        self._set_info_value(self.info_format, (path.suffix.upper().lstrip(".") or "Unknown") + " File")
+        self._set_info_value(self.info_resolution, "—")
+        self._set_info_value(self.info_color_space, "—")
         self._render_inspector_tags(path)
         self.info_preview.clear()
         if path.suffix.lower() in IMAGE_EXTS:
             reader = QImageReader(str(path))
             image_size = reader.size()
             if image_size.isValid():
-                self.info_resolution.setText(f"RESOLUTION   {image_size.width()} × {image_size.height()} px")
+                self._set_info_value(self.info_resolution, f"{image_size.width()} × {image_size.height()} px")
             try:
                 from PIL import Image
                 with Image.open(path) as image_meta:
                     profile = image_meta.info.get("icc_profile")
-                    self.info_color_space.setText("COLOR SPACE   Embedded ICC profile" if profile else "COLOR SPACE   Not specified")
+                    self._set_info_value(self.info_color_space, "Embedded ICC profile" if profile else "Not specified")
             except Exception:
-                self.info_color_space.setText("COLOR SPACE   Unknown")
+                self._set_info_value(self.info_color_space, "Unknown")
             pix = cached_preview(path, 240)
             if pix.isNull():
                 # Inspector preview is a one-off decode; the grid remains fully asynchronous.
@@ -1338,7 +1356,11 @@ QToolButton#filterButton { min-width: 27px; min-height: 25px; padding: 4px 7px; 
 QToolButton#filterButton:checked { background: #323645; border: 1px solid #00a3ff; color: #00d2ff; }
 QPushButton#primary { background: #0082d9; border: 1px solid #0082d9; color: #ffffff; font-weight: 600; }
 QPushButton#primary:hover { background: #00a3ff; }
-QFrame#sidebar, QFrame#infoPanel { background: #1a1b22; border: none; border-radius: 0; }
+QPushButton#primary { min-height: 30px; border-radius: 5px; }
+QFrame#infoPanel QPushButton:not(#primary) { min-height: 27px; background: #191b24; border: 1px solid #292e3b; border-radius: 5px; color: #c4cddd; }
+QFrame#infoPanel QPushButton:not(#primary):hover { background: #232735; border-color: #00a3ff; }
+QFrame#sidebar { background: #1a1b22; border: none; border-radius: 0; }
+QFrame#infoPanel { background: #111218; border-left: 1px solid #272b36; border-radius: 0; }
 QListWidget { background: transparent; border: none; outline: none; }
 QListWidget::item { padding: 7px 7px; border-radius: 5px; color: #c4c9d5; }
 QListWidget::item:selected { background: #323645; color: #00d2ff; }
@@ -1366,8 +1388,11 @@ QFrame#assetCard { background: #20222b; border: 1px solid #2c2f3b; border-radius
 QFrame#assetCard:hover { background: #2a2d39; border: 1px solid #00a3ff; }
 QLabel#assetName { color: #e1e5ed; font-size: 9pt; }
 QLabel#infoPreview { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 6px; color: #8e9aa5; }
-QLabel#infoName { color: #f0f3f8; font-weight: 600; padding-top: 7px; }
-QLabel#infoText { color: #8993a7; font-size: 9pt; padding: 3px 0; }
+QLabel#infoName { color: #f0f3f8; font-weight: 600; padding: 7px 0 5px 0; }
+QLabel#infoText { background: #15161d; border: 1px solid #262a36; border-radius: 5px; color: #dce5f3; font-size: 8pt; padding: 5px 7px; }
+QLineEdit#infoPathEdit { background: #111218; border: 1px solid #292e3c; border-radius: 5px; color: #76b8ff; padding: 6px 8px; font-family: Consolas, monospace; font-size: 8pt; }
+QLineEdit#infoPathEdit:hover { border-color: #3b4d6a; }
+QLineEdit#infoPathEdit::drop-down { border: none; }
 QPushButton:checked { background: #323645; border-color: #00a3ff; color: #00d2ff; }
 QLabel#emptyState { color: #788195; font-size: 12pt; padding: 40px; }
 QCheckBox { spacing: 8px; }
