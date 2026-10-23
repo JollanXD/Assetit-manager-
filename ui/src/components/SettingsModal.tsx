@@ -3,7 +3,8 @@ import {
   X, FolderPlus, FolderOpen, Trash2, RefreshCw, CheckCircle2, HardDrive, Clock,
   Settings, SlidersHorizontal, Globe,
 } from 'lucide-react';
-import type { LocalFolder } from '@/types';\ndeclare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }
+import type { LocalFolder } from '@/types';
+declare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }
 
 interface SettingsModalProps {
   open: boolean;
