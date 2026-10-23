@@ -8,13 +8,13 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer, QRect, QPoint
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer, QRect, QPoint, QUrl
 from PySide6.QtWidgets import QLayout
-from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter, QPixmapCache, QImageReader
+from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter, QPixmapCache, QImageReader, QColor, QDesktopServices
 from PySide6.QtCore import QByteArray
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QAbstractButton,
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem, QFileDialog,
     QSplitter, QFrame, QScrollArea, QDialog, QFormLayout, QCheckBox, QComboBox,
     QMessageBox, QToolButton, QMenu, QStatusBar, QSizePolicy, QSlider, QSpinBox, QProgressBar
@@ -353,6 +353,26 @@ class SettingsDialog(QDialog):
         super().accept()
 
 
+class SwitchButton(QAbstractButton):
+    """Compact iOS-style toggle matching the dark blue interface."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(36, 20)
+        self.setAccessibleName("Show Favorites Only")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#008fe8" if self.isChecked() else "#303542"))
+        painter.drawRoundedRect(self.rect(), 10, 10)
+        painter.setBrush(QColor("#f5f8ff"))
+        painter.drawEllipse(QRect(19 if self.isChecked() else 3, 3, 14, 14))
+        painter.end()
+
+
 class FlowLayout(QLayout):
     """Compact tag layout that wraps chips to the next line when space runs out."""
     def __init__(self, parent=None, margin=0, h_spacing=5, v_spacing=5):
@@ -475,6 +495,51 @@ class AssetItWindow(QMainWindow):
         plugins_action = QAction("Open Plugins Folder", self)
         plugins_action.triggered.connect(self.open_plugins_folder)
         tools_menu.addAction(plugins_action)
+        help_menu = self.menuBar().addMenu("Help")
+        about_action = QAction("About Asset It…", self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+        help_menu.addSeparator()
+        github_action = QAction("Asset It on GitHub", self)
+        github_action.triggered.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/JollanXD/Assetit-manager-")))
+        help_menu.addAction(github_action)
+
+    def show_about(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("About Asset It")
+        dialog.setMinimumWidth(460)
+        dialog.setStyleSheet("""
+            QDialog { background: #1a1b22; color: #d8dbe4; }
+            QLabel#aboutTitle { color: #e8edf7; font-size: 18pt; font-weight: 650; }
+            QLabel#aboutVersion { color: #899bb4; font-size: 9pt; }
+            QLabel#aboutDescription { color: #c4c9d5; font-size: 9pt; }
+            QPushButton#aboutLink { text-align: left; background: #20222b; border: 1px solid #2c2f3b; padding: 10px; }
+        """)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(12)
+        title = QLabel("Asset It")
+        title.setObjectName("aboutTitle")
+        layout.addWidget(title)
+        version = QLabel(f"Version {APP_VERSION}  •  Portable Asset Browser")
+        version.setObjectName("aboutVersion")
+        layout.addWidget(version)
+        description = QLabel("A local asset browser for previewing, organizing, tagging, and managing your asset libraries.")
+        description.setObjectName("aboutDescription")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        github = QPushButton("⌘   Source code on GitHub     github.com/JollanXD/Assetit-manager-")
+        github.setObjectName("aboutLink")
+        github.setCursor(Qt.CursorShape.PointingHandCursor)
+        github.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/JollanXD/Assetit-manager-")))
+        layout.addWidget(github)
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        close = QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        footer.addWidget(close)
+        layout.addLayout(footer)
+        dialog.exec()
 
     def _build_ui(self):
         central = QWidget()
@@ -544,25 +609,45 @@ class AssetItWindow(QMainWindow):
         side.addWidget(self._section_label("CATEGORIES"))
         self.category_list = QListWidget()
         self.category_list.setObjectName("categoryList")
+        self.category_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.category_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.category_list.setUniformItemSizes(True)
+        self.category_list.setSpacing(2)
         for label, icon_name in [("All Assets", "grid"), ("3D Models", "cube"), ("Textures & Normals", "image"), ("HDRI Maps", "sun"), ("Scenes & Presets", "folder")]:
             item = QListWidgetItem(self._svg_icon(icon_name, "#19c5f5", 17), label)
             item.setData(Qt.ItemDataRole.UserRole, label)
+            item.setSizeHint(QSize(220, 32))
             self.category_list.addItem(item)
         self.category_list.setCurrentRow(0)
         self.category_list.currentRowChanged.connect(self._category_changed)
-        self.category_list.setMaximumHeight(178)
+        self.category_list.setFixedHeight(5 * 34 + 4)
         side.addWidget(self.category_list)
-        self.favorites_button = QToolButton()
-        self.favorites_button.setIcon(self._svg_icon("star", "#ffbd32", 17))
-        self.favorites_button.setText("Favorites")
-        self.favorites_button.setCheckable(True)
-        self.favorites_button.setObjectName("favoritesButton")
-        self.favorites_button.toggled.connect(self._favorites_filter_changed)
-        side.addWidget(self.favorites_button)
-        self.favorites_toggle = QCheckBox("Show Favorites Only")
-        self.favorites_toggle.setObjectName("favoritesToggle")
+        favorites_row = QHBoxLayout()
+        favorites_row.setContentsMargins(8, 5, 8, 2)
+        favorites_row.setSpacing(8)
+        favorite_star = QLabel()
+        favorite_star.setObjectName("favoriteStar")
+        favorite_star.setPixmap(self._svg_icon("star", "#b8c7d5", 18).pixmap(18, 18))
+        favorite_star.setToolTip("Favorites")
+        favorites_row.addWidget(favorite_star)
+        favorites_title = QLabel("Favorites")
+        favorites_title.setObjectName("favoritesTitle")
+        favorites_row.addWidget(favorites_title)
+        favorites_row.addStretch(1)
+        self.favorites_count = QLabel("0")
+        self.favorites_count.setObjectName("favoritesCount")
+        favorites_row.addWidget(self.favorites_count)
+        side.addLayout(favorites_row)
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(8, 2, 8, 6)
+        toggle_row.setSpacing(8)
+        toggle_label = QLabel("Show Favorites Only")
+        toggle_label.setObjectName("favoritesToggleLabel")
+        toggle_row.addWidget(toggle_label)
+        toggle_row.addStretch(1)
+        self.favorites_toggle = SwitchButton()
         self.favorites_toggle.toggled.connect(self._favorites_filter_changed)
-        side.addWidget(self.favorites_toggle)
+        toggle_row.addWidget(self.favorites_toggle)
         side.addWidget(self._section_label("TAGS"))
         self.tag_presets = QWidget()
         self.tag_presets_layout = QGridLayout(self.tag_presets)
@@ -841,7 +926,7 @@ class AssetItWindow(QMainWindow):
                 if item:
                     item.setText(f"{label}   {count}")
             favorite_count = len(self.settings.get("favorites", []))
-            self.favorites_button.setText(f"Favorites   {favorite_count}")
+            self.favorites_count.setText(str(favorite_count))
         for tag, count in sorted(tag_counts.items(), key=lambda item: item[0].casefold()):
             item = QListWidgetItem(self._svg_icon("star", "#19c5f5", 12), f"#{tag}   {count}")
             item.setData(Qt.ItemDataRole.UserRole, tag)
@@ -1226,14 +1311,6 @@ class AssetItWindow(QMainWindow):
         worker.deleteLater()
 
     def _favorites_filter_changed(self, checked):
-        if hasattr(self, "favorites_toggle"):
-            self.favorites_toggle.blockSignals(True)
-            self.favorites_toggle.setChecked(checked)
-            self.favorites_toggle.blockSignals(False)
-        if hasattr(self, "favorites_button"):
-            self.favorites_button.blockSignals(True)
-            self.favorites_button.setChecked(checked)
-            self.favorites_button.blockSignals(False)
         self._render_cards()
 
     def _toggle_favorite_path(self, path_string):
@@ -1490,7 +1567,12 @@ QCheckBox#favoritesToggle::indicator:checked { background: #00a3ff; border: 1px 
 QListWidget { background: transparent; border: none; outline: none; }
 QListWidget::item { padding: 7px 8px; border-radius: 5px; color: #c4c9d5; }
 QListWidget::item:selected { background: #323645; color: #00d2ff; }
-QListWidget#categoryList::item { padding: 8px 8px; }
+QListWidget#categoryList::item { padding: 5px 8px; min-height: 30px; }
+QListWidget#categoryList::item:selected { background: #323645; color: #e1e5ed; }
+QLabel#favoriteStar { color: #b8c7d5; }
+QLabel#favoritesTitle { color: #d8dbe4; }
+QLabel#favoritesCount { color: #9fbbe8; }
+QLabel#favoritesToggleLabel { color: #a7adbc; font-size: 8pt; }
 QListWidget#tagsList::item { padding: 4px 5px; color: #00c3ff; }
 QLabel#countLabel { color: #e1e5ed; font-weight: 600; }
 QLabel#filterBadge { color: #d5d9e3; background: #2c2f3b; border-radius: 4px; padding: 3px 8px; font-family: "JetBrains Mono", Consolas, monospace; }
@@ -1515,7 +1597,7 @@ QLabel#assetSize { color: #899bb4; font-size: 8pt; }
 QLabel#infoPreview { background: #121316; border: 1px solid #2c2f3b; border-radius: 7px; color: #8e9aa5; }
 QLabel#infoName { color: #f0f3f8; font-size: 11pt; font-weight: 600; padding: 3px 0 0 0; }
 QLabel#infoCategory { color: #00c3ff; background: #101b28; border: 1px solid #16425b; border-radius: 4px; padding: 3px 7px; font-size: 8pt; }
-QLabel#infoText { color: #899bb4; font-size: 8pt; padding: 4px 0; }
+QLabel#infoText { color: #899bb4; font-size: 8pt; padding: 0; min-height: 22px; }
 QLineEdit#infoPathEdit { background: #121316; border: 1px solid #2c2f3b; border-radius: 5px; color: #aebed7; padding: 7px 8px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 8pt; }
 QLineEdit#infoPathEdit:hover { border-color: #3b4d6a; }
 QPushButton:checked { background: #323645; border-color: #00a3ff; color: #00d2ff; }
