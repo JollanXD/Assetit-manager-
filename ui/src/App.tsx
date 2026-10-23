@@ -46,6 +46,7 @@ export default function App() {
     try {
       api.getLibraries((json: string) => setFolders(JSON.parse(json || '[]')));
       api.getAssets((json: string) => setAssets(JSON.parse(json || '[]')));
+      api.getTaxonomy?.((json: string) => { const data = JSON.parse(json || '{}'); setCategories(data.categories || []); setTags(data.tags || []); });
     } catch (e) { console.error('AssetIt local bridge error', e); }
   }, []);
 
@@ -77,26 +78,30 @@ export default function App() {
   const handleToggleCategory = (cat: Category) => setSelectedCategories((prev) => toggleSet(prev, cat));
   const handleToggleTag = (tag: string) => setSelectedTags((prev) => toggleSet(prev, tag));
 
-  const handleAddCategory = useCallback((name: string, iconName: string) => {
-    setCategories((prev) => [...prev, { name, iconName }]);
+  const persistTaxonomy = useCallback((nextCategories: CategoryDef[], nextTags: string[]) => {
+    bridge.current?.saveTaxonomy?.(JSON.stringify({ categories: nextCategories, tags: nextTags }));
   }, []);
+
+  const handleAddCategory = useCallback((name: string, iconName: string) => {
+    setCategories((prev) => { const next = [...prev, { name, iconName }]; persistTaxonomy(next, tags); return next; });
+  }, [persistTaxonomy, tags]);
 
   const handleRemoveCategory = useCallback((cat: Category) => {
-    setCategories((prev) => prev.filter((c) => c.name !== cat));
+    setCategories((prev) => { const next = prev.filter((c) => c.name !== cat); persistTaxonomy(next, tags); return next; });
     setSelectedCategories((prev) => { const next = new Set(prev); next.delete(cat); return next; });
-  }, []);
+  }, [persistTaxonomy, tags]);
 
   const handleAddTag = useCallback((tag: string) => {
-    setTags((prev) => [...prev, tag]);
-  }, []);
+    setTags((prev) => { const next = [...prev, tag]; persistTaxonomy(categories, next); return next; });
+  }, [persistTaxonomy, categories]);
 
   const handleRemoveTag = useCallback((tag: string) => {
-    setTags((prev) => prev.filter((t) => t !== tag));
+    setTags((prev) => { const next = prev.filter((t) => t !== tag); persistTaxonomy(categories, next); return next; });
     setSelectedTags((prev) => { const next = new Set(prev); next.delete(tag); return next; });
     // Also remove from all assets
     setAssets((prev) => prev.map((a) => ({ ...a, tags: a.tags.filter((t) => t !== tag) })));
     setSelectedAsset((prev) => prev ? { ...prev, tags: prev.tags.filter((t) => t !== tag) } : prev);
-  }, []);
+  }, [persistTaxonomy, categories]);
 
   const handleClearFilters = () => {
     setSelectedCategories(new Set());
@@ -110,14 +115,19 @@ export default function App() {
   }, []);
 
   const handleAddTagToAsset = useCallback((asset: Asset, tag: string) => {
-    setAssets((prev) => prev.map((a) => (a.id === asset.id && !a.tags.includes(tag) ? { ...a, tags: [...a.tags, tag] } : a)));
-    setSelectedAsset((prev) => (prev && prev.id === asset.id && !prev.tags.includes(tag) ? { ...prev, tags: [...prev.tags, tag] } : prev));
-  }, []);
+    const updated = [...new Set([...(assets.find((a) => a.id === asset.id)?.tags ?? asset.tags), tag])];
+    bridge.current?.setAssetTags?.(asset.filePath, JSON.stringify(updated));
+    if (!tags.includes(tag)) setTags((prev) => { const next = [...prev, tag]; persistTaxonomy(categories, next); return next; });
+    setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, tags: updated } : a)));
+    setSelectedAsset((prev) => (prev && prev.id === asset.id ? { ...prev, tags: updated } : prev));
+  }, [assets, tags, categories, persistTaxonomy]);
 
   const handleRemoveTagFromAsset = useCallback((asset: Asset, tag: string) => {
-    setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, tags: a.tags.filter((t) => t !== tag) } : a)));
-    setSelectedAsset((prev) => (prev && prev.id === asset.id ? { ...prev, tags: prev.tags.filter((t) => t !== tag) } : prev));
-  }, []);
+    const updated = (assets.find((a) => a.id === asset.id)?.tags ?? asset.tags).filter((t) => t !== tag);
+    bridge.current?.setAssetTags?.(asset.filePath, JSON.stringify(updated));
+    setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, tags: updated } : a)));
+    setSelectedAsset((prev) => (prev && prev.id === asset.id ? { ...prev, tags: updated } : prev));
+  }, [assets]);
 
   const handleImport = useCallback((asset: Asset, target: string) => {
     if (target === 'clipboard') {
@@ -253,6 +263,7 @@ export default function App() {
               onToggleFavorite={handleToggleFavorite}
               onAddTagToAsset={handleAddTagToAsset}
               onRemoveTagFromAsset={handleRemoveTagFromAsset}
+              availableTags={tags}
             />
           </>
         )}
