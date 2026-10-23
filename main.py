@@ -813,7 +813,7 @@ class AssetItWindow(QMainWindow):
         sort_label.setObjectName("muted")
         status_row.addWidget(sort_label)
         self.sort_select = QComboBox()
-        self.sort_select.addItems(["Name (A-Z)", "Date Added", "File Size", "Resolution"])
+        self.sort_select.addItems(["Name (A-Z)", "Date Modified", "File Size", "Resolution"])
         self.sort_select.currentIndexChanged.connect(self._render_cards)
         self.sort_select.setFixedWidth(130)
         status_row.addWidget(self.sort_select)
