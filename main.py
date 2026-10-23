@@ -1522,7 +1522,10 @@ class AssetItWindow(QMainWindow):
             item = self.grid.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.deleteLater()
+                if widget.objectName() == "assetCard":
+                    widget.hide()
+                else:
+                    widget.deleteLater()
         label = QLabel(message)
         label.setObjectName("emptyState")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
