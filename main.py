@@ -506,6 +506,7 @@ class AssetItWindow(QMainWindow):
         self._selected_paths = set()
         self._render_generation = 0
         self._render_queue = []
+        self._card_thumb_size = int(self.settings.get("thumbnail_size", 150))
         self._render_cols = 1
         self._render_thumb = 150
         self._render_favorites = set()
@@ -1334,7 +1335,7 @@ class AssetItWindow(QMainWindow):
             item = self.grid.takeAt(0)
             widget = item.widget()
             if widget:
-                widget.deleteLater()
+                widget.hide()
 
         query = self.search.text().casefold().strip()
         mode = next((i for i, button in enumerate(self.filter_buttons) if button.isChecked()), 0)
@@ -1395,10 +1396,16 @@ class AssetItWindow(QMainWindow):
             return
 
         self._render_queue = visible
-        self._card_widgets = {}
+        requested_thumb = int(self.settings.get("thumbnail_size", 150))
+        # Reuse card widgets and decoded previews across filters; rebuild only on zoom changes.
+        if requested_thumb != self._card_thumb_size:
+            for card in self._card_widgets.values():
+                card.deleteLater()
+            self._card_widgets = {}
+            self._card_thumb_size = requested_thumb
         self._render_index = 0
-        self._render_cols = max(1, self.scroll.viewport().width() // (self.settings.get("thumbnail_size", 150) + 28))
-        self._render_thumb = self.settings.get("thumbnail_size", 150)
+        self._render_cols = max(1, self.scroll.viewport().width() // (requested_thumb + 28))
+        self._render_thumb = requested_thumb
         self._render_favorites = favorites
         self.status.showMessage(f"Preparing {len(visible)} assets…")
         image_paths = [p for p in visible if p.suffix.lower() in IMAGE_EXTS]
@@ -1418,13 +1425,23 @@ class AssetItWindow(QMainWindow):
         end = min(self._render_index + batch_size, len(self._render_queue))
         for index in range(self._render_index, end):
             path = self._render_queue[index]
-            card = AssetCard(path, self._render_thumb, str(path) in self._render_favorites)
-            card.selected.connect(self.select_asset)
-            card.activated.connect(self._open_path)
-            card.favorite_toggled.connect(self._toggle_favorite_path)
-            card.context_requested.connect(self._asset_context_menu)
+            key = str(path)
+            card = self._card_widgets.get(key)
+            if card is None:
+                card = AssetCard(path, self._render_thumb, key in self._render_favorites)
+                card.selected.connect(self.select_asset)
+                card.activated.connect(self._open_path)
+                card.favorite_toggled.connect(self._toggle_favorite_path)
+                card.context_requested.connect(self._asset_context_menu)
+                self._card_widgets[key] = card
+            else:
+                star = card.findChild(QToolButton, "cardFavorite")
+                favorite = key in self._render_favorites
+                if star:
+                    star.setIcon(AssetCard._icon("star", "#ffbf3f" if favorite else "#8c9aaa", 16))
+                    star.setToolTip("Remove from favorites" if favorite else "Add to favorites")
             self.grid.addWidget(card, index // self._render_cols, index % self._render_cols)
-            self._card_widgets[str(path)] = card
+            card.show()
         self._render_index = end
         if end < len(self._render_queue):
             self.status.showMessage(f"Loading thumbnails… {end} / {len(self._render_queue)}")
