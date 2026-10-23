@@ -1891,7 +1891,7 @@ class ReactAssetBridge(QObject):
                             "fileFormat": ext, "filePath": path, "textureRes": "2K",
                             "vertices": 0, "polygons": 0, "colorSpace": "sRGB",
                             "associatedAssetsCount": 0, "targetSoftwareVersion": "",
-                            "fileSizeMB": stat.st_size / 1048576, "thumbnail": "", "preview": "",
+                            "fileSizeMB": stat.st_size / 1048576, "thumbnail": QUrl.fromLocalFile(path).toString() if ext in IMAGE_EXTS else "", "preview": "",
                             "favorite": path in favorites, "imported": False,
                             "dateAdded": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
                             "description": str(p), "tags": tags_by_path.get(path, [])
