@@ -1887,9 +1887,9 @@ class ReactAssetBridge(QObject):
                         path = str(p.resolve())
                         records.append({
                             "id": path, "name": p.stem, "kitName": p.parent.name,
-                            "category": "Uncategorized", "polycount": "Mid", "type": kind,
-                            "fileFormat": ext, "filePath": path, "textureRes": "2K",
-                            "vertices": 0, "polygons": 0, "colorSpace": "sRGB",
+                            "category": "Uncategorized", "polycount": "—", "type": kind,
+                            "fileFormat": ext, "filePath": path, "textureRes": "—",
+                            "vertices": -1, "polygons": -1, "colorSpace": "—",
                             "associatedAssetsCount": 0, "targetSoftwareVersion": "",
                             "fileSizeMB": stat.st_size / 1048576, "thumbnail": QUrl.fromLocalFile(path).toString() if ext in IMAGE_EXTS else "", "preview": "",
                             "favorite": path in favorites, "imported": False,
