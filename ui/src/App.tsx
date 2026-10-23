@@ -8,7 +8,7 @@ import SettingsModal from '@/components/SettingsModal';
 import { useResizablePanes } from '@/hooks/useResizablePanes';
 import { assets as initialAssets, localFolders as initialFolders } from '@/data';
 import type { Asset, NavSection, Category, CategoryDef, ViewMode, LocalFolder } from '@/types';
-import { navItems, defaultCategories, defaultTags } from '@/lib/nav';
+import { navItems } from '@/lib/nav';
 
 declare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }\n\nconst COLLAPSED_WIDTH = 52;
 const EXPANDED_WIDTH = 240;
