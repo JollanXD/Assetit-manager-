@@ -780,11 +780,24 @@ class AssetItWindow(QMainWindow):
         self.thumb_size = QSlider(Qt.Orientation.Horizontal)
         self.thumb_size.setRange(90, 240)
         self.thumb_size.setSingleStep(10)
-        self.thumb_size.setFixedWidth(100)
-        self.thumb_size.setToolTip("Thumbnail size")
+        self.thumb_size.setFixedWidth(112)
+        self.thumb_size.setTracking(False)
+        self.thumb_size.setToolTip("Thumbnail size — adjust and release to apply")
         self.thumb_size.setValue(int(self.settings.get("thumbnail_size", 150)))
         self.thumb_size.valueChanged.connect(self._thumbnail_size_changed)
+        zoom_out = QToolButton()
+        zoom_out.setText("-")
+        zoom_out.setObjectName("zoomButton")
+        zoom_out.setToolTip("Smaller thumbnails")
+        zoom_out.clicked.connect(lambda: self.thumb_size.setValue(max(self.thumb_size.minimum(), self.thumb_size.value() - 15)))
+        zoom_in = QToolButton()
+        zoom_in.setText("+")
+        zoom_in.setObjectName("zoomButton")
+        zoom_in.setToolTip("Larger thumbnails")
+        zoom_in.clicked.connect(lambda: self.thumb_size.setValue(min(self.thumb_size.maximum(), self.thumb_size.value() + 15)))
+        toolbar.addWidget(zoom_out)
         toolbar.addWidget(self.thumb_size)
+        toolbar.addWidget(zoom_in)
         self.search.textChanged.connect(self._render_cards)
         refresh = QToolButton()
         refresh.setIcon(self._svg_icon("refresh", "#aab8c5", 17))
@@ -1726,6 +1739,11 @@ QLabel#resolutionBadge { background: #202b40; color: #b7c9e6; border-radius: 4px
 QWidget#thumbContainer { background: #1a1b22; border: 1px solid #2c2f3b; border-radius: 6px; }
 QToolButton#cardFavorite { background: rgba(26,27,34,220); border: 1px solid #2c2f3b; border-radius: 5px; padding: 3px; margin: 5px; }
 QToolButton#filterButton { min-width: 27px; min-height: 25px; padding: 4px 7px; font-size: 11pt; }
+QToolButton#zoomButton { min-width: 23px; max-width: 23px; min-height: 24px; max-height: 24px; padding: 0; border-radius: 12px; color: #9fbbe8; font-size: 13pt; font-weight: 600; }
+QSlider::groove:horizontal { height: 4px; background: #2c2f3b; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #0082d9; border-radius: 2px; }
+QSlider::handle:horizontal { background: #00d2ff; border: 2px solid #121316; width: 12px; height: 12px; margin: -5px 0; border-radius: 7px; }
+QSlider::handle:horizontal:hover { background: #ffffff; }
 QToolButton#filterButton:checked { background: #323645; border: 1px solid #00a3ff; color: #00d2ff; }
 QToolButton#tagChip { background: #20222b; color: #00c3ff; border: 1px solid #2c2f3b; border-radius: 10px; padding: 3px 7px; font-size: 8pt; }
 QToolButton#tagChip:hover { background: #2a2d39; border-color: #00a3ff; }
