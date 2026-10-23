@@ -129,7 +129,8 @@ def write_library_cache(root: Path, paths):
 
 
 class LibraryScanThread(QThread):
-    finished_scan = Signal(list, str)
+    # Include the scanned root so a late result can never overwrite another library.
+    finished_scan = Signal(list, str, str)
 
     def __init__(self, root: Path, show_hidden: bool, parent=None):
         super().__init__(parent)
@@ -151,7 +152,7 @@ class LibraryScanThread(QThread):
                     continue
         except (OSError, PermissionError) as exc:
             warning = str(exc)
-        self.finished_scan.emit(found, warning)
+        self.finished_scan.emit(found, warning, str(self.root))
 
 
 class AssetCard(QFrame):
@@ -1203,21 +1204,35 @@ class AssetItWindow(QMainWindow):
             self.cards = cached
             self._render_cards()
             self.status.showMessage(f"Loaded {len(cached)} cached assets; checking for changes…")
+        self._rescan_after_scan = False
         self._scan_thread = LibraryScanThread(library, show_hidden, self)
         self._scan_thread.finished_scan.connect(self._scan_finished)
+        self._scan_thread.finished.connect(self._scan_thread_finished)
         self._scan_thread.start()
 
-    def _scan_finished(self, paths, warning):
+    def _scan_finished(self, paths, warning, scanned_root):
+        # The user may have switched libraries while this worker was scanning.
+        # Never apply an old library's results to the newly selected library.
+        if not self.current_library or str(self.current_library) != scanned_root:
+            self._rescan_after_scan = bool(self.current_library and self.current_library.exists())
+            return
+
         self.cards = paths
         self.cards.sort(key=lambda p: (p.suffix.lower() not in IMAGE_EXTS, p.name.casefold()))
-        if self.current_library:
-            write_library_cache(self.current_library, self.cards)
+        write_library_cache(Path(scanned_root), self.cards)
         self._refresh_sidebar_metadata()
         self._render_cards()
         if warning:
             self.status.showMessage(f"Scan completed with warning: {warning}")
         else:
             self.status.showMessage(f"Scanned {len(self.cards)} supported files")
+
+    def _scan_thread_finished(self):
+        # QThread.finished fires after run() has returned, so it is safe to
+        # launch the deferred scan for the library selected most recently.
+        if self._rescan_after_scan:
+            self._rescan_after_scan = False
+            self._scan_current()
 
     def _render_cards(self, *_):
         # Invalidate any queued card batches so filtering never leaves stale cards behind.
