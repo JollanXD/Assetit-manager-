@@ -1128,6 +1128,7 @@ class AssetItWindow(QMainWindow):
 
     def _thumbnail_size_changed(self, value):
         self.settings["thumbnail_size"] = int(value)
+        save_settings(self.settings)
         self._render_cards()
 
     def _set_filter(self, index):
