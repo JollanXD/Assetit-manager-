@@ -3,7 +3,7 @@ import {
   X, FolderPlus, FolderOpen, Trash2, RefreshCw, CheckCircle2, HardDrive, Clock,
   Settings, SlidersHorizontal, Globe,
 } from 'lucide-react';
-import type { LocalFolder } from '@/types';
+import type { LocalFolder } from '@/types';\ndeclare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }
 
 interface SettingsModalProps {
   open: boolean;
@@ -74,6 +74,15 @@ export default function SettingsModal({
                   onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                   placeholder="D:\3D_Assets\My_Pack"
                   className="flex-1 border border-surface-400 bg-surface-200 px-3 py-2 text-[13px] font-mono text-slate-200 placeholder:text-slate-600 focus:border-accent focus:outline-none" />
+                <button onClick={() => {
+                  const api = window.assetItBridge;
+                  if (!api) return;
+                  api.chooseLibrary((path: string) => {
+                    if (path) { onAddFolder(path); setNewPath(''); }
+                  });
+                }} className="flex items-center gap-1.5 border border-surface-400 px-3 py-2 text-[13px] font-semibold text-slate-300 hover:bg-surface-300">
+                  <FolderOpen className="h-3.5 w-3.5" /> Browse
+                </button>
                 <button onClick={handleAdd} disabled={!newPath.trim()}
                   className="flex items-center gap-1.5 bg-accent px-3 py-2 text-[13px] font-bold text-surface-50 transition-colors hover:bg-accent-600 disabled:opacity-40">
                   <FolderPlus className="h-3.5 w-3.5" /> Add
