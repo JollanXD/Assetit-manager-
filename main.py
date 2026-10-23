@@ -615,6 +615,7 @@ class AssetItWindow(QMainWindow):
             item.setSizeHint(QSize(220, 32))
             self.category_list.addItem(item)
             row_widget = QWidget()
+            row_widget.setStyleSheet("background: transparent;")
             row_layout = QHBoxLayout(row_widget)
             row_layout.setContentsMargins(8, 0, 8, 0)
             row_layout.setSpacing(9)
