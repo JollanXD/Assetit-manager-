@@ -140,9 +140,25 @@ def load_settings():
     return settings
 
 
+def _atomic_write_text(target: Path, content: str):
+    """Replace a file only after its complete contents have been written."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(target.name + ".tmp")
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        temporary.replace(target)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def save_settings(settings):
-    APPDATA.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_text(
+        SETTINGS_FILE,
+        json.dumps(settings, indent=2, ensure_ascii=False),
+    )
 
 
 def cache_file_for(root: Path) -> Path:
@@ -161,8 +177,10 @@ def read_library_cache(root: Path):
 def write_library_cache(root: Path, paths):
     try:
         target = cache_file_for(root)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps([str(path) for path in paths], ensure_ascii=False), encoding="utf-8")
+        _atomic_write_text(
+            target,
+            json.dumps([str(path) for path in paths], ensure_ascii=False),
+        )
     except OSError:
         pass
 
@@ -1087,8 +1105,11 @@ class AssetItWindow(QMainWindow):
             favorites.discard(key)
         self.settings["favorites"] = sorted(favorites)
         save_settings(self.settings)
-        self.favorite_asset_button.setText("In Favorites" if checked else "Add to Favorites")
-        self.favorite_asset_button.setIcon(self._svg_icon("star", "#ffbf3f" if checked else "#8c9aaa", 16))
+        # The inspector may not expose a dedicated favorite button in this layout.
+        favorite_button = getattr(self, "favorite_asset_button", None)
+        if favorite_button is not None:
+            favorite_button.setText("In Favorites" if checked else "Add to Favorites")
+            favorite_button.setIcon(self._svg_icon("star", "#ffbf3f" if checked else "#8c9aaa", 16))
         self._render_cards()
         self._refresh_sidebar_metadata()
 
@@ -1195,8 +1216,17 @@ class AssetItWindow(QMainWindow):
             self.library_list.addItem(item)
         self.library_list.blockSignals(False)
         if self.library_list.count():
-            self.library_list.setCurrentRow(0)
+            # Preserve the active library when renaming or refreshing the list.
+            active = str(self.current_library) if self.current_library else None
+            selected_row = 0
+            if active:
+                for i in range(self.library_list.count()):
+                    if self.library_list.item(i).data(Qt.ItemDataRole.UserRole) == active:
+                        selected_row = i
+                        break
+            self.library_list.setCurrentRow(selected_row)
         else:
+            self.current_library = None
             self._show_empty("Add a library folder to begin")
 
     def add_library(self):
@@ -1334,9 +1364,9 @@ class AssetItWindow(QMainWindow):
                 return None
 
         if sort_mode == 1:
-            visible.sort(key=lambda p: (safe_stat(p).st_mtime if safe_stat(p) else 0), reverse=True)
+            visible.sort(key=lambda p: (stat.st_mtime if (stat := safe_stat(p)) else 0), reverse=True)
         elif sort_mode == 2:
-            visible.sort(key=lambda p: (safe_stat(p).st_size if safe_stat(p) else 0), reverse=True)
+            visible.sort(key=lambda p: (stat.st_size if (stat := safe_stat(p)) else 0), reverse=True)
         elif sort_mode == 3:
             visible.sort(key=self._resolution_sort_key, reverse=True)
         else:
@@ -1579,9 +1609,12 @@ class AssetItWindow(QMainWindow):
         prompt.setWordWrap(True)
         layout.addWidget(prompt)
         app_choice = QComboBox()
-        app_choice.addItems(["Active bridge (if available)", "Blender", "Autodesk Maya", "Cinema 4D"])
+        app_choice.addItems(["Open with the default application…", "Choose an application executable…"])
         layout.addWidget(app_choice)
-        note = QLabel("Bridge plugins are not installed yet. This selection prepares the import workflow.")
+        note = QLabel(
+            "Asset It can open the selected file in an application you choose. "
+            "Direct scene import requires a compatible application bridge/plugin."
+        )
         note.setObjectName("muted")
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -1596,7 +1629,26 @@ class AssetItWindow(QMainWindow):
         buttons.addWidget(go)
         layout.addLayout(buttons)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.status.showMessage("Import target selected: " + app_choice.currentText() + " — bridge integration is not installed yet")
+            if app_choice.currentIndex() == 0:
+                if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.current_asset))):
+                    QMessageBox.warning(
+                        self, "Could not open asset",
+                        "Windows could not open this file with its default application.",
+                    )
+                else:
+                    self.status.showMessage(f"Opened {self.current_asset.name} with the default application")
+            else:
+                executable, _ = QFileDialog.getOpenFileName(
+                    self, "Choose application executable", "",
+                    "Applications (*.exe);;All files (*.*)",
+                )
+                if executable:
+                    import subprocess
+                    try:
+                        subprocess.Popen([executable, str(self.current_asset)])
+                        self.status.showMessage(f"Opened {self.current_asset.name} with {Path(executable).name}")
+                    except OSError as exc:
+                        QMessageBox.warning(self, "Could not launch application", str(exc))
 
     def open_containing_folder(self):
         if self.current_asset and self.current_asset.exists():
