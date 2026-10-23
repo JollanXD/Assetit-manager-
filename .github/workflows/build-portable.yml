@@ -47,7 +47,7 @@ jobs:
         run: python -c "from PIL import Image; im=Image.open('assets/assetit.ico'); print(im.format, im.size); assert im.format == 'ICO'"
 
       - name: Build portable folder
-        run: pyinstaller --noconfirm --clean --windowed --onedir --name AssetIt --icon=assets/assetit.ico --collect-submodules PySide6.QtSvg --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module PySide6.QtPdf --exclude-module PySide6.QtPdfWidgets main.py
+        run: pyinstaller --noconfirm --clean --windowed --onedir --name AssetIt --icon=assets/assetit.ico --collect-submodules PySide6.QtSvg --collect-all PySide6.QtWebEngineCore --collect-all PySide6.QtWebEngineWidgets --collect-all PySide6.QtWebChannel --exclude-module PySide6.QtPdf --exclude-module PySide6.QtPdfWidgets main.py
 
       - name: Prepare portable package
         shell: pwsh
