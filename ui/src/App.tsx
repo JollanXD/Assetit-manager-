@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import TopBar from '@/components/TopBar';
 import AssetGrid from '@/components/AssetGrid';
@@ -10,14 +10,14 @@ import { assets as initialAssets, localFolders as initialFolders } from '@/data'
 import type { Asset, NavSection, Category, CategoryDef, ViewMode, LocalFolder } from '@/types';
 import { navItems, defaultCategories, defaultTags } from '@/lib/nav';
 
-const COLLAPSED_WIDTH = 52;
+declare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }\n\nconst COLLAPSED_WIDTH = 52;
 const EXPANDED_WIDTH = 240;
 
 let toastId = 0;
 
 export default function App() {
-  const [assets, setAssets] = useState<Asset[]>(initialAssets);
-  const [folders, setFolders] = useState<LocalFolder[]>(initialFolders);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [folders, setFolders] = useState<LocalFolder[]>([]);\n  const bridge = useRef<any>(null);
   const [activeNav, setActiveNav] = useState<NavSection>('all');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -29,15 +29,32 @@ export default function App() {
   const [uiScale, setUiScale] = useState(100);
   const [language, setLanguage] = useState<'English' | 'Russian'>('English');
 
-  const [categories, setCategories] = useState<CategoryDef[]>(defaultCategories);
+  const [categories, setCategories] = useState<CategoryDef[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Set<Category>>(new Set());
-  const [tags, setTags] = useState<string[]>(defaultTags);
+  const [tags, setTags] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
   const { leftWidth, rightWidth, activeHandle, startLeftResize, startRightResize, setRightWidth } = useResizablePanes(EXPANDED_WIDTH, 360);
   const toastRef = useRef(toastId);
 
   const currentLeftWidth = sidebarCollapsed ? COLLAPSED_WIDTH : leftWidth;
+  const refreshLocalData = useCallback(() => {
+    const api = bridge.current;
+    if (!api) return;
+    try {
+      api.getLibraries((json: string) => setFolders(JSON.parse(json || '[]')));
+      api.getAssets((json: string) => setAssets(JSON.parse(json || '[]')));
+    } catch (e) { console.error('AssetIt local bridge error', e); }
+  }, []);
+
+  useEffect(() => {
+    if (!window.QWebChannel || !window.qt?.webChannelTransport) return;
+    new window.QWebChannel(window.qt.webChannelTransport, (channel: any) => {
+      bridge.current = channel.objects.assetItBridge;
+      refreshLocalData();
+    });
+  }, [refreshLocalData]);
+
 
   const addToast = useCallback((message: string, subtitle: string) => {
     const id = ++toastRef.current;
