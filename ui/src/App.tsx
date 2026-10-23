@@ -9,14 +9,17 @@ import { useResizablePanes } from '@/hooks/useResizablePanes';
 import type { Asset, NavSection, Category, CategoryDef, ViewMode, LocalFolder } from '@/types';
 import { navItems } from '@/lib/nav';
 
-declare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }\n\nconst COLLAPSED_WIDTH = 52;
+declare global { interface Window { QWebChannel?: any; qt?: any; assetItBridge?: any } }
+
+const COLLAPSED_WIDTH = 52;
 const EXPANDED_WIDTH = 240;
 
 let toastId = 0;
 
 export default function App() {
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [folders, setFolders] = useState<LocalFolder[]>([]);\n  const bridge = useRef<any>(null);
+  const [folders, setFolders] = useState<LocalFolder[]>([]);
+  const bridge = useRef<any>(null);
   const [activeNav, setActiveNav] = useState<NavSection>('all');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
