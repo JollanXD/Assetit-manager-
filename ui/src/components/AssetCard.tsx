@@ -22,7 +22,7 @@ export default function AssetCard({ asset, viewMode, isSelected, onSelect, onQui
       <div onClick={() => onSelect(asset)}
         className={`group flex cursor-pointer items-center gap-3 border-l-2 px-3 py-2 transition-colors ${isSelected ? 'border-l-accent bg-accent/5' : 'border-l-transparent hover:bg-surface-200'}`}>
         <div className="relative h-12 w-16 flex-shrink-0 overflow-hidden bg-surface-200">
-          <img src={asset.thumbnail} alt={asset.name} loading="lazy" className="h-full w-full object-cover" />
+          {asset.thumbnail ? <img src={asset.thumbnail} alt={asset.name} loading="lazy" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-slate-600"><TypeIcon className="h-8 w-8" /></div>}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -53,7 +53,7 @@ export default function AssetCard({ asset, viewMode, isSelected, onSelect, onQui
     <div onClick={() => onSelect(asset)}
       className={`group relative cursor-pointer overflow-hidden border transition-colors ${isSelected ? 'border-accent' : 'border-surface-300 hover:border-surface-500'}`}>
       <div className="relative aspect-[4/3] overflow-hidden bg-surface-200">
-        <img src={asset.thumbnail} alt={asset.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        {asset.thumbnail ? <img src={asset.thumbnail} alt={asset.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" /> : <div className="flex h-full w-full items-center justify-center text-slate-600"><TypeIcon className="h-8 w-8" /></div>}
         <div className="absolute left-0 top-0">
           <span className="flex items-center gap-1 bg-surface-0/80 px-1.5 py-0.5 text-[9px] font-semibold text-slate-200 backdrop-blur-sm"><CatIcon className="h-2.5 w-2.5" />{asset.category}</span>
         </div>
