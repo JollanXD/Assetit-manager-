@@ -361,7 +361,10 @@ class SettingsDialog(QDialog):
         self.scale.setSingleStep(10)
         self.scale.setSuffix("%")
         self.scale.setValue(round(float(settings.get("ui_scale", 1.0)) * 100))
-        self.scale.valueChanged.connect(self._apply_scale_live)
+        self._scale_timer = QTimer(self)
+        self._scale_timer.setSingleShot(True)
+        self._scale_timer.timeout.connect(self._apply_scale_pending)
+        self.scale.valueChanged.connect(self._queue_scale_live)
         form.addRow("Interface scale", self.scale)
         form.addRow("", self.hidden)
         form.addRow("", self.disk_usage)
@@ -393,17 +396,17 @@ class SettingsDialog(QDialog):
         if self.parent():
             self.parent()._settings_changed("show_disk_usage")
 
-    def _apply_scale_live(self, value):
-        scale = value / 100.0
-        app = QApplication.instance()
-        if app:
-            font = app.font()
-            font.setPointSizeF(10 * scale)
-            app.setFont(font)
+    def _queue_scale_live(self, value):
+        self._pending_scale = value / 100.0
+        # Avoid restyling the entire application for every spin-box tick.
+        self._scale_timer.start(100)
+
+    def _apply_scale_pending(self):
         if self.parent():
-            self.parent()._apply_ui_scale(scale)
+            self.parent()._apply_ui_scale(self._pending_scale)
 
     def accept(self):
+        self._scale_timer.stop()
         self.settings["ui_scale"] = self.scale.value() / 100.0
         self.settings["show_hidden"] = self.hidden.isChecked()
         self.settings["show_disk_usage"] = self.disk_usage.isChecked()
@@ -513,7 +516,7 @@ class AssetItWindow(QMainWindow):
         self._card_widgets = {}
         self.setWindowTitle(f"AssetIt {APP_VERSION}")
         self.resize(1536, 960)
-        self.setMinimumSize(1100, 680)
+        self.setMinimumSize(860, 560)
         self.setWindowIcon(self._make_icon())
         self._build_ui()
         self._build_menu()
@@ -627,6 +630,7 @@ class AssetItWindow(QMainWindow):
         self.library_button.setObjectName("primary")
         self.library_button.setToolTip("Add a local asset library")
         self.library_button.setMaximumWidth(112)
+        self.library_button.setMinimumHeight(0)
         self.library_button.clicked.connect(self.add_library)
         header.addWidget(self.library_button)
         self.settings_button = QToolButton()
@@ -723,6 +727,7 @@ class AssetItWindow(QMainWindow):
         self.favorites_toggle = SwitchButton()
         self.favorites_toggle.toggled.connect(self._favorites_filter_changed)
         toggle_row.addWidget(self.favorites_toggle)
+        side.addLayout(toggle_row)
         self.tags_header = QToolButton()
         self.tags_header.setText("▾  TAGS")
         self.tags_header.setObjectName("sidebarSectionToggle")
