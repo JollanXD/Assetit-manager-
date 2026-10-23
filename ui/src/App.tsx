@@ -6,7 +6,6 @@ import Inspector from '@/components/Inspector';
 import ToastContainer, { type ToastData } from '@/components/Toast';
 import SettingsModal from '@/components/SettingsModal';
 import { useResizablePanes } from '@/hooks/useResizablePanes';
-import { assets as initialAssets, localFolders as initialFolders } from '@/data';
 import type { Asset, NavSection, Category, CategoryDef, ViewMode, LocalFolder } from '@/types';
 import { navItems } from '@/lib/nav';
 
@@ -102,6 +101,7 @@ export default function App() {
   };
 
   const handleToggleFavorite = useCallback((asset: Asset) => {
+    bridge.current?.toggleFavorite(asset.filePath);
     setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, favorite: !a.favorite } : a)));
     setSelectedAsset((prev) => (prev && prev.id === asset.id ? { ...prev, favorite: !prev.favorite } : prev));
   }, []);
@@ -132,17 +132,24 @@ export default function App() {
   }, [addToast]);
 
   const handleAddFolder = useCallback((path: string) => {
-    setFolders((prev) => [...prev, { id: `f${Date.now()}`, path, assetCount: Math.floor(Math.random() * 100) + 10, lastScanned: new Date().toISOString().slice(0, 10) }]);
-    addToast('Folder added', `${path} — scanning complete`);
-  }, [addToast]);
+    const api = bridge.current;
+    if (!api) { addToast('Desktop bridge unavailable', 'Restart the packaged AssetIt application.'); return; }
+    api.addLibrary(path, (raw: string) => {
+      const result = JSON.parse(raw || '{}');
+      if (result.error) { addToast('Folder not added', result.error); return; }
+      refreshLocalData();
+      addToast('Local folder added', result.path);
+    });
+  }, [addToast, refreshLocalData]);
 
   const handleRemoveFolder = useCallback((id: string) => {
-    setFolders((prev) => prev.filter((f) => f.id !== id));
-  }, []);
+    bridge.current?.removeLibrary(id, () => refreshLocalData());
+  }, [refreshLocalData]);
 
-  const handleRescan = useCallback((id: string) => {
-    setFolders((prev) => prev.map((f) => f.id === id ? { ...f, lastScanned: new Date().toISOString().slice(0, 10), assetCount: f.assetCount + Math.floor(Math.random() * 5) } : f));
-  }, []);
+  const handleRescan = useCallback((_id: string) => {
+    refreshLocalData();
+    addToast('Library refreshed', 'Asset list updated from disk.');
+  }, [addToast, refreshLocalData]);
 
   const counts = useMemo(() => ({
     all: assets.length,
