@@ -1810,13 +1810,32 @@ QToolTip { background: #20222b; color: #e8edf2; border: 1px solid #00a3ff; paddi
 """
 
 
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    # The React UI is the primary interface when the bundled web build is available.
+    # If startup fails, preserve access to the existing native UI.
+    ui_root = Path(sys.executable).resolve().parent / "ui" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent / "ui" / "dist"
+    index_file = ui_root / "index.html"
+    if index_file.is_file():
+        try:
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+            from PySide6.QtCore import QUrl
+            web = QWebEngineView()
+            web.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
+            web.resize(1536, 960)
+            web.setMinimumSize(860, 560)
+            web.setWindowIcon(QIcon(str(Path(sys.executable).resolve().parent / "assets" / "assetit.ico")))
+            web.load(QUrl.fromLocalFile(str(index_file.resolve())))
+            web.show()
+            sys.exit(app.exec())
+        except Exception as exc:
+            print(f"React UI could not start; using native UI instead: {exc}", file=sys.stderr)
     scale = float(load_settings().get("ui_scale", 1.0))
     import re
-    scaled_style = re.sub(r"font-size:\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
+    scaled_style = re.sub(r"font-size:\\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
     app.setStyleSheet(scaled_style)
     window = AssetItWindow()
     window.show()
