@@ -1820,9 +1820,26 @@ class ReactAssetBridge(QObject):
         self.settings.setdefault("libraries", [])
         self.settings.setdefault("favorites", [])
         self.settings.setdefault("asset_tags", {})
+        self.settings.setdefault("categories", [])
+        self.settings.setdefault("tags", [])
 
     def _save(self):
         save_settings(self.settings)
+
+    @Slot(result=str)
+    def getTaxonomy(self):
+        return json.dumps({"categories": self.settings.get("categories", []), "tags": self.settings.get("tags", [])})
+
+    @Slot(str, result=str)
+    def saveTaxonomy(self, raw):
+        try:
+            data = json.loads(raw)
+            self.settings["categories"] = data.get("categories", []) if isinstance(data.get("categories", []), list) else []
+            self.settings["tags"] = data.get("tags", []) if isinstance(data.get("tags", []), list) else []
+            self._save()
+            return "ok"
+        except (TypeError, ValueError):
+            return "invalid"
 
     @Slot(result=str)
     def getLibraries(self):
@@ -1834,7 +1851,7 @@ class ReactAssetBridge(QObject):
                     count = sum(1 for p in path.rglob("*") if p.is_file() and p.suffix.lower() in ASSET_EXTS)
                 except OSError:
                     count = 0
-                rows.append({"id": str(path.resolve()), "path": str(path.resolve()), "assetCount": count, "lastScanned": None})
+                rows.append({"id": str(path.resolve()), "path": str(path.resolve()), "assetCount": count, "lastScanned": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")})
         self.settings["libraries"] = [r["path"] for r in rows]
         self._save()
         return json.dumps(rows)
