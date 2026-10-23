@@ -29,18 +29,6 @@ export const iconPickerOptions: string[] = [
 ];
 
 /** Default category definitions (name + iconName) */
-export const defaultCategories: CategoryDef[] = [
-  { name: 'Sci-Fi', iconName: 'Rocket' },
-  { name: 'Cyberpunk', iconName: 'Ghost' },
-  { name: 'Fantasy', iconName: 'Castle' },
-  { name: 'Industrial', iconName: 'Factory' },
-  { name: 'Modular', iconName: 'Blocks' },
-  { name: 'Modern', iconName: 'Building2' },
-];
+export const defaultCategories: CategoryDef[] = [];
 
-export const defaultTags: string[] = [
-  'modular', 'PBR', 'rigged', 'animated', 'destructible',
-  'interior', 'exterior', 'hero prop', 'environment',
-  'vehicle', 'character', 'weapon',
-  'low-poly', 'mid-poly', 'high-poly',
-];
+export const defaultTags: string[] = [];
