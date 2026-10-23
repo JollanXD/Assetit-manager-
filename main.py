@@ -613,20 +613,20 @@ class AssetItWindow(QMainWindow):
         logo.setPixmap(self._make_icon().pixmap(30, 30))
         title = QLabel("AssetIt")
         title.setObjectName("brand")
-        version = QLabel(APP_VERSION)
-        version.setObjectName("muted")
         header.addWidget(logo)
         header.addWidget(title)
-        header.addWidget(version)
+        header.addSpacing(8)
         self.search = QLineEdit()
         self.search.setObjectName("globalSearch")
         self.search.setPlaceholderText("Search assets, formats, tags…  (Ctrl+F)")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(220)
-        self.search.setMaximumWidth(520)
+        self.search.setMinimumWidth(120)
+        self.search.setMaximumWidth(16777215)
         header.addWidget(self.search, 1)
-        self.library_button = QPushButton("+ Add Library")
+        self.library_button = QPushButton("+ Library")
         self.library_button.setObjectName("primary")
+        self.library_button.setToolTip("Add a local asset library")
+        self.library_button.setMaximumWidth(112)
         self.library_button.clicked.connect(self.add_library)
         header.addWidget(self.library_button)
         self.settings_button = QToolButton()
@@ -723,7 +723,15 @@ class AssetItWindow(QMainWindow):
         self.favorites_toggle = SwitchButton()
         self.favorites_toggle.toggled.connect(self._favorites_filter_changed)
         toggle_row.addWidget(self.favorites_toggle)
-        side.addWidget(self._section_label("TAGS"))
+        self.tags_header = QToolButton()
+        self.tags_header.setText("▾  TAGS")
+        self.tags_header.setObjectName("sidebarSectionToggle")
+        self.tags_header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.tags_header.setCheckable(True)
+        self.tags_header.setChecked(True)
+        self.tags_header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tags_header.toggled.connect(self._toggle_tags_section)
+        side.addWidget(self.tags_header)
         self.tag_presets = QWidget()
         self.tag_presets_layout = QGridLayout(self.tag_presets)
         self.tag_presets_layout.setContentsMargins(0, 0, 0, 0)
@@ -799,6 +807,14 @@ class AssetItWindow(QMainWindow):
         toolbar.addWidget(zoom_out)
         toolbar.addWidget(self.thumb_size)
         toolbar.addWidget(zoom_in)
+        sort_label = QLabel("Sort")
+        sort_label.setObjectName("muted")
+        toolbar.addWidget(sort_label)
+        self.sort_select = QComboBox()
+        self.sort_select.addItems(["Name (A-Z)", "Date Modified", "File Size", "Resolution"])
+        self.sort_select.currentIndexChanged.connect(self._render_cards)
+        self.sort_select.setFixedWidth(130)
+        toolbar.addWidget(self.sort_select)
         self.search.textChanged.connect(self._render_cards)
         refresh = QToolButton()
         refresh.setIcon(self._svg_icon("refresh", "#aab8c5", 17))
@@ -807,31 +823,9 @@ class AssetItWindow(QMainWindow):
         refresh.clicked.connect(self._scan_current)
         toolbar.addWidget(refresh)
         browser_layout.addLayout(toolbar)
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(12, 7, 12, 7)
-        status_row.setSpacing(7)
-        self.count_label = QLabel("0 Assets Found")
-        self.count_label.setObjectName("countLabel")
-        status_row.addWidget(self.count_label)
-        separator = QLabel("|")
-        separator.setObjectName("muted")
-        status_row.addWidget(separator)
-        filter_caption = QLabel("Filter:")
-        filter_caption.setObjectName("muted")
-        status_row.addWidget(filter_caption)
-        self.active_filter_badge = QLabel("All")
-        self.active_filter_badge.setObjectName("filterBadge")
-        status_row.addWidget(self.active_filter_badge)
-        status_row.addStretch()
-        sort_label = QLabel("Sort:")
-        sort_label.setObjectName("muted")
-        status_row.addWidget(sort_label)
-        self.sort_select = QComboBox()
-        self.sort_select.addItems(["Name (A-Z)", "Date Modified", "File Size", "Resolution"])
-        self.sort_select.currentIndexChanged.connect(self._render_cards)
-        self.sort_select.setFixedWidth(130)
-        status_row.addWidget(self.sort_select)
-        browser_layout.addLayout(status_row)
+        # Sorting is in the toolbar; omit the redundant count/filter strip.
+        self.count_label = QLabel("")
+        self.active_filter_badge = QLabel("")
         self.scroll = QScrollArea()
         self.scroll.setObjectName("assetScroll")
         self.scroll.setWidgetResizable(True)
@@ -971,6 +965,11 @@ class AssetItWindow(QMainWindow):
         self._refresh_sidebar_metadata()
         self._update_disk_usage()
 
+    def _toggle_tags_section(self, expanded):
+        self.tag_presets.setVisible(expanded)
+        self.tags_list.setVisible(False)
+        self.tags_header.setText("▾  TAGS" if expanded else "▸  TAGS")
+
     def _settings_changed(self, key):
         save_settings(self.settings)
         if key == "show_hidden":
@@ -979,21 +978,25 @@ class AssetItWindow(QMainWindow):
             self._update_disk_usage()
 
     def _apply_ui_scale(self, scale):
-        self.settings["ui_scale"] = float(scale)
-        save_settings(self.settings)
+        scale = max(0.5, min(3.0, float(scale)))
+        self.settings["ui_scale"] = scale
         import re
         scaled_style = re.sub(r"font-size:\s*([0-9.]+)pt", lambda match: f"font-size: {float(match.group(1)) * scale:.1f}pt", STYLE)
+        # Scale dimensions and spacing too, not just text.
+        scaled_style = re.sub(r"(?<![\w.])(-?\d+(?:\.\d+)?)px", lambda match: f"{max(0, round(float(match.group(1)) * scale))}px", scaled_style)
         app = QApplication.instance()
         if app:
             app.setStyleSheet(scaled_style)
-        icon_size = max(10, round(18 * scale))
+        icon_size = max(8, round(18 * scale))
         for widget in self.findChildren(QToolButton):
             widget.setIconSize(QSize(icon_size, icon_size))
         for widget in self.findChildren(QPushButton):
             widget.setIconSize(QSize(icon_size, icon_size))
         if hasattr(self, "logo"):
-            self.logo.setPixmap(self._make_icon().pixmap(max(16, round(30 * scale)), max(16, round(30 * scale))))
-        # Do not rebuild cards: thumbnails remain cached while the interface scales.
+            size = max(16, round(30 * scale))
+            self.logo.setFixedSize(size, size)
+            self.logo.setPixmap(self._make_icon().pixmap(size, size))
+        # Persist the selected value when the Settings dialog is saved, not on each live tick.
 
     def _toggle_panel(self, panel):
         panel.setVisible(not panel.isVisible())
@@ -1727,7 +1730,7 @@ QLineEdit#globalSearch:focus { border-color: #00a3ff; }
 QComboBox QAbstractItemView { background: #1a1b22; selection-background-color: #323645; }
 QPushButton, QToolButton { background: #20222b; border: 1px solid #2c2f3b; border-radius: 5px; padding: 6px 9px; }
 QPushButton:hover, QToolButton:hover { background: #2a2d39; border-color: #00a3ff; color: #eafaff; }
-QPushButton#primary { background: #0082d9; border: 1px solid #0082d9; color: #ffffff; font-weight: 600; min-height: 30px; border-radius: 5px; }
+QPushButton#primary { background: #0082d9; border: 1px solid #0082d9; color: #ffffff; font-weight: 600; min-height: 24px; padding: 4px 8px; border-radius: 5px; }
 QPushButton#primary:hover { background: #00a3ff; }
 QFrame#sidebar { background: #1a1b22; border-right: 1px solid #2c2f3b; border-radius: 0; }
 QFrame#infoPanel { background: #1a1b22; border-left: 1px solid #2c2f3b; border-radius: 0; }
@@ -1788,6 +1791,15 @@ QCheckBox::indicator { width: 14px; height: 14px; }
 QCheckBox::indicator:checked { background: #00a3ff; border: 1px solid #00d2ff; }
 QStatusBar { background: #121316; color: #788195; border-top: 1px solid #2c2f3b; }
 QScrollArea#assetScroll { background: #121316; border: none; }
+QScrollBar:vertical { background: #171920; width: 10px; margin: 2px 1px; border: none; border-radius: 5px; }
+QScrollBar::handle:vertical { background: #353b49; min-height: 28px; border-radius: 5px; }
+QScrollBar::handle:vertical:hover { background: #4a566b; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; background: transparent; border: none; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar:horizontal { background: #171920; height: 9px; border: none; }
+QScrollBar::handle:horizontal { background: #353b49; min-width: 28px; border-radius: 4px; }
+QToolButton#sidebarSectionToggle { text-align: left; color: #788195; background: transparent; border: none; padding: 5px 0; font-size: 8pt; font-weight: 600; }
+QToolButton#sidebarSectionToggle:hover { color: #00d2ff; }
 QSplitter#mainSplitter::handle { background: #2c2f3b; width: 1px; }
 QToolTip { background: #20222b; color: #e8edf2; border: 1px solid #00a3ff; padding: 4px; }
 """
