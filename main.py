@@ -95,10 +95,49 @@ class ThumbnailBatchWorker(QThread):
 
 
 def load_settings():
+    """Load user settings defensively, preserving forward-compatible unknown keys."""
+    defaults = {
+        "libraries": [],
+        "thumbnail_size": 150,
+        "show_hidden": False,
+        "favorites": [],
+        "ui_scale": 1.0,
+        "show_disk_usage": False,
+        "asset_tags": {},
+    }
     try:
-        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"libraries": [], "thumbnail_size": 150, "show_hidden": False, "favorites": [], "ui_scale": 1.0, "show_disk_usage": False, "asset_tags": {}}
+        loaded = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            return defaults
+        settings = {**defaults, **loaded}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return defaults
+
+    # Normalize fields that the UI assumes have a specific type.
+    if not isinstance(settings.get("libraries"), list):
+        settings["libraries"] = []
+    settings["libraries"] = [str(p) for p in settings["libraries"] if isinstance(p, (str, Path))]
+    if not isinstance(settings.get("favorites"), list):
+        settings["favorites"] = []
+    settings["favorites"] = [str(p) for p in settings["favorites"] if isinstance(p, (str, Path))]
+    if not isinstance(settings.get("asset_tags"), dict):
+        settings["asset_tags"] = {}
+    settings["asset_tags"] = {
+        str(path): [str(tag) for tag in tags if isinstance(tag, (str, int, float))]
+        for path, tags in settings["asset_tags"].items()
+        if isinstance(tags, list)
+    }
+    try:
+        settings["thumbnail_size"] = max(80, min(320, int(settings["thumbnail_size"])))
+    except (TypeError, ValueError, OverflowError):
+        settings["thumbnail_size"] = defaults["thumbnail_size"]
+    try:
+        settings["ui_scale"] = max(0.7, min(1.6, float(settings["ui_scale"])))
+    except (TypeError, ValueError, OverflowError):
+        settings["ui_scale"] = defaults["ui_scale"]
+    settings["show_hidden"] = bool(settings.get("show_hidden"))
+    settings["show_disk_usage"] = bool(settings.get("show_disk_usage"))
+    return settings
 
 
 def save_settings(settings):
@@ -1188,22 +1227,28 @@ class AssetItWindow(QMainWindow):
         self._scan_current()
 
     def _scan_current(self):
-        if self._scan_thread and self._scan_thread.isRunning():
-            self.status.showMessage("A library scan is already running…")
-            return
         if not self.current_library or not self.current_library.exists():
             self.cards = []
             self._render_cards()
             self.status.showMessage("Library folder is unavailable")
             return
         library = self.current_library
-        show_hidden = self.settings.get("show_hidden", False)
-        self.status.showMessage("Scanning library in background…")
+        # Immediately switch the visible content when the selected library changes,
+        # even if a scan for the previous library is still winding down.
         cached = read_library_cache(library)
-        if cached:
-            self.cards = cached
-            self._render_cards()
-            self.status.showMessage(f"Loaded {len(cached)} cached assets; checking for changes…")
+        self.cards = cached
+        self._render_cards()
+        if self._scan_thread and self._scan_thread.isRunning():
+            self._rescan_after_scan = True
+            self.status.showMessage(
+                f"Loaded {len(cached)} cached assets; waiting for the previous scan to finish…"
+            )
+            return
+        show_hidden = self.settings.get("show_hidden", False)
+        self.status.showMessage(
+            f"Loaded {len(cached)} cached assets; checking for changes…"
+            if cached else "Scanning library in background…"
+        )
         self._rescan_after_scan = False
         self._scan_thread = LibraryScanThread(library, show_hidden, self)
         self._scan_thread.finished_scan.connect(self._scan_finished)
@@ -1282,10 +1327,16 @@ class AssetItWindow(QMainWindow):
             visible.append(path)
 
         sort_mode = self.sort_select.currentIndex() if hasattr(self, "sort_select") else 0
+        def safe_stat(path):
+            try:
+                return path.stat()
+            except OSError:
+                return None
+
         if sort_mode == 1:
-            visible.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+            visible.sort(key=lambda p: (safe_stat(p).st_mtime if safe_stat(p) else 0), reverse=True)
         elif sort_mode == 2:
-            visible.sort(key=lambda p: p.stat().st_size if p.exists() else 0, reverse=True)
+            visible.sort(key=lambda p: (safe_stat(p).st_size if safe_stat(p) else 0), reverse=True)
         elif sort_mode == 3:
             visible.sort(key=self._resolution_sort_key, reverse=True)
         else:
