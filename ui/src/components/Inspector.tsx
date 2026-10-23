@@ -136,8 +136,8 @@ export default function Inspector({ width, asset, onClose, onImport, onToggleFav
           {assetKind === 'model' && (
             <>
               <DetailRow icon={FileBox} label="Format" value={asset.fileFormat} />
-              <DetailRow icon={Ruler} label="Vertices" value={asset.vertices.toLocaleString()} />
-              <DetailRow icon={Boxes} label="Polygons" value={asset.polygons.toLocaleString()} />
+              <DetailRow icon={Ruler} label="Vertices" value={asset.vertices >= 0 ? asset.vertices.toLocaleString() : "—"} />
+              <DetailRow icon={Boxes} label="Polygons" value={asset.polygons >= 0 ? asset.polygons.toLocaleString() : "—"} />
               <DetailRow icon={Cpu} label="Polycount" value={asset.polycount} />
               <DetailRow icon={Weight} label="File Size" value={`${asset.fileSizeMB.toFixed(1)} MB`} />
             </>
