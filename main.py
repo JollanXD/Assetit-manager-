@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer, QRect, QPoint, QUrl
+from PySide6.QtCore import Qt, QSize, QThread, Signal, QTimer, QRect, QPoint, QUrl, QObject, Slot
 from PySide6.QtWidgets import QLayout
 from PySide6.QtGui import QAction, QPixmap, QIcon, QPainter, QPixmapCache, QImageReader, QColor, QDesktopServices
 from PySide6.QtCore import QByteArray
@@ -1811,6 +1811,119 @@ QToolTip { background: #20222b; color: #e8edf2; border: 1px solid #00a3ff; paddi
 
 
 
+
+class ReactAssetBridge(QObject):
+    """Bridge from the replaceable React UI to explicitly selected local folders."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.settings = load_settings()
+        self.settings.setdefault("libraries", [])
+        self.settings.setdefault("favorites", [])
+        self.settings.setdefault("asset_tags", {})
+
+    def _save(self):
+        save_settings(self.settings)
+
+    @Slot(result=str)
+    def getLibraries(self):
+        rows = []
+        for raw in self.settings.get("libraries", []):
+            path = Path(raw)
+            if path.is_dir():
+                try:
+                    count = sum(1 for p in path.rglob("*") if p.is_file() and p.suffix.lower() in ASSET_EXTS)
+                except OSError:
+                    count = 0
+                rows.append({"id": str(path.resolve()), "path": str(path.resolve()), "assetCount": count, "lastScanned": None})
+        self.settings["libraries"] = [r["path"] for r in rows]
+        self._save()
+        return json.dumps(rows)
+
+    @Slot(result=str)
+    def chooseLibrary(self):
+        path = QFileDialog.getExistingDirectory(None, "Choose local asset folder")
+        if not path:
+            return ""
+        path = str(Path(path).resolve())
+        if path not in self.settings["libraries"]:
+            self.settings["libraries"].append(path)
+            self._save()
+        return path
+
+    @Slot(str, result=str)
+    def addLibrary(self, raw):
+        path = Path(raw).expanduser()
+        if not path.is_dir():
+            return json.dumps({"error": "Folder does not exist"})
+        path = str(path.resolve())
+        if path not in self.settings["libraries"]:
+            self.settings["libraries"].append(path)
+            self._save()
+        return json.dumps({"path": path})
+
+    @Slot(str, result=str)
+    def removeLibrary(self, raw):
+        self.settings["libraries"] = [p for p in self.settings.get("libraries", []) if p != raw]
+        self._save()
+        return self.getLibraries()
+
+    @Slot(result=str)
+    def getAssets(self):
+        records = []
+        favorites = set(self.settings.get("favorites", []))
+        tags_by_path = self.settings.get("asset_tags", {})
+        for root in self.settings.get("libraries", []):
+            folder = Path(root)
+            if not folder.is_dir():
+                continue
+            try:
+                for p in folder.rglob("*"):
+                    if not p.is_file() or p.suffix.lower() not in ASSET_EXTS:
+                        continue
+                    try:
+                        stat = p.stat()
+                        ext = p.suffix.lower()
+                        kind = "Material" if ext in IMAGE_EXTS else ("Model" if ext in MODEL_EXTS else "Kit")
+                        path = str(p.resolve())
+                        records.append({
+                            "id": path, "name": p.stem, "kitName": p.parent.name,
+                            "category": "Uncategorized", "polycount": "Mid", "type": kind,
+                            "fileFormat": ext, "filePath": path, "textureRes": "2K",
+                            "vertices": 0, "polygons": 0, "colorSpace": "sRGB",
+                            "associatedAssetsCount": 0, "targetSoftwareVersion": "",
+                            "fileSizeMB": stat.st_size / 1048576, "thumbnail": "", "preview": "",
+                            "favorite": path in favorites, "imported": False,
+                            "dateAdded": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+                            "description": str(p), "tags": tags_by_path.get(path, [])
+                        })
+                    except OSError:
+                        continue
+            except OSError:
+                continue
+        return json.dumps(records)
+
+    @Slot(str, result=str)
+    def toggleFavorite(self, raw):
+        favorites = set(self.settings.get("favorites", []))
+        if raw in favorites:
+            favorites.remove(raw)
+        else:
+            favorites.add(raw)
+        self.settings["favorites"] = sorted(favorites)
+        self._save()
+        return "ok"
+
+    @Slot(str, str, result=str)
+    def setAssetTags(self, raw, tags_json):
+        try:
+            tags = json.loads(tags_json)
+        except Exception:
+            tags = []
+        self.settings.setdefault("asset_tags", {})[raw] = [str(t) for t in tags]
+        self._save()
+        return "ok"
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -1823,7 +1936,12 @@ def main():
         try:
             from PySide6.QtWebEngineWidgets import QWebEngineView
             from PySide6.QtCore import QUrl
+            from PySide6.QtWebChannel import QWebChannel
             web = QWebEngineView()
+            bridge = ReactAssetBridge(web)
+            channel = QWebChannel(web.page())
+            channel.registerObject('assetItBridge', bridge)
+            web.page().setWebChannel(channel)
             web.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
             web.resize(1536, 960)
             web.setMinimumSize(860, 560)
